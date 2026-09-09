@@ -7,8 +7,12 @@ async function geocodeAddress(addressRaw) {
     params: { text: addressRaw, apiKey: process.env.GEOAPIFY_API_KEY, format: "json" },
   });
 
+  // Geoapify's `confidence` score is not a reliable "does this exist" signal — verified
+  // empirically: a correctly full_match'd real place scored confidence 0, while a
+  // genuinely bogus address scored an empty `results` array. Emptiness is the real
+  // "doesn't resolve" signal; confidence reflects match precision, not existence.
   const best = data.results?.[0];
-  if (!best || (best.rank?.confidence ?? 0) < 0.5) {
+  if (!best) {
     return null;
   }
 
