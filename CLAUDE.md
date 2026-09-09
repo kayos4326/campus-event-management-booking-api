@@ -45,7 +45,8 @@ This app deploys **alongside existing infrastructure on the same VPS** — it do
   - `/content` → WordPress (proxied to `127.0.0.1:8080`)
   - `/api` → existing lab CRUD API (`backend-crud-api`, run under PM2 as `crud-api`, on `127.0.0.1:3000`)
 - **This app's path: `/events`**, proxied to `127.0.0.1:3001` (matches the scaffold's default `PORT`) — single Nginx site `azure-proxy` at `/etc/nginx/sites-available/azure-proxy`, single Certbot cert covering the whole domain (expires 2026-09-22, auto-renewed)
-- ⚠️ Nginx config for the `/events` block itself is not yet written/deployed — only decided
+- Nginx `/events` block is **deployed and live** (config tested + reloaded 2026-09-09; pre-change config backed up on the VM as `azure-proxy.bak.20260909072045`). Currently 502s since no app is deployed to port 3001 yet — that's expected until the Node process is running there (e.g. via PM2, matching `crud-api`'s pattern).
+- ⚠️ Unrelated pre-existing issue noticed during deploy: `/content` (WordPress) is already returning 502 — nothing listens on `127.0.0.1:8080` and `docker` isn't installed on the VM. Not caused by this project's changes; flagged but not fixed.
 
 ---
 
@@ -114,7 +115,7 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 ## 8. Open Items (genuinely undecided — don't assume answers)
 
 - [ ] DB schema for events/venues/bookings beyond `Venue.room_number` (starter schema now in `prisma/schema.prisma`, not final)
-- [x] URL path for this app on `bad-vps-01` → `/events` (see §3) — Nginx block not yet deployed
+- [x] URL path for this app on `bad-vps-01` → `/events` (see §3) — Nginx block deployed and live (502 until the app itself is running on :3001)
 - [ ] Whether the capstone-specific Entra tenant + Key Vault have been provisioned yet
 - [ ] Geoapify API key — obtained or not
 - [ ] Merch team's peer order-creation endpoint — final request/response shape
