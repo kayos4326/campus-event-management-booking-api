@@ -8,7 +8,14 @@ const { SecretClient } = require("@azure/keyvault-secrets");
 // No JWT signing secret here: auth is Entra ID/OIDC (JWKS-validated), not self-issued
 // JWTs, so there's no shared secret to store. Peer keys we ISSUE (e.g. to HelpDesk) are
 // stored hashed in the ApiKey table, not here — only keys ISSUED TO US live in the vault.
-const SECRET_NAMES = ["database-url", "geoapify-api-key", "merch-peer-api-key"];
+//
+// database-url is required — nothing works without a DB. geoapify-api-key and
+// merch-peer-api-key are genuinely not obtained yet (external dependencies, CLAUDE.md
+// §8), so they're optional at boot: missing ones are skipped with a warning rather than
+// blocking the whole app — venue creation / merch pre-order simply fail at the point of
+// use until those keys exist, instead of nothing working at all.
+const REQUIRED_SECRETS = ["database-url"];
+const OPTIONAL_SECRETS = ["geoapify-api-key", "merch-peer-api-key"];
 
 async function loadSecrets() {
   const vaultUrl = process.env.KEY_VAULT_URL;
@@ -19,19 +26,26 @@ async function loadSecrets() {
   const credential = new DefaultAzureCredential();
   const client = new SecretClient(vaultUrl, credential);
 
-  const entries = await Promise.all(
-    SECRET_NAMES.map(async (name) => {
-      const secret = await client.getSecret(name);
-      return [name, secret.value];
-    })
-  );
+  const secrets = {};
 
-  const secrets = Object.fromEntries(entries);
+  for (const name of REQUIRED_SECRETS) {
+    const secret = await client.getSecret(name);
+    secrets[name] = secret.value;
+  }
+
+  for (const name of OPTIONAL_SECRETS) {
+    try {
+      const secret = await client.getSecret(name);
+      secrets[name] = secret.value;
+    } catch (err) {
+      console.warn(`⚠️  Optional secret "${name}" not found in Key Vault — skipping.`);
+    }
+  }
 
   // Map vault secret names to the env vars the rest of the app expects.
   process.env.DATABASE_URL = secrets["database-url"];
-  process.env.GEOAPIFY_API_KEY = secrets["geoapify-api-key"];
-  process.env.MERCH_PEER_API_KEY = secrets["merch-peer-api-key"];
+  if (secrets["geoapify-api-key"]) process.env.GEOAPIFY_API_KEY = secrets["geoapify-api-key"];
+  if (secrets["merch-peer-api-key"]) process.env.MERCH_PEER_API_KEY = secrets["merch-peer-api-key"];
 
   return secrets;
 }
