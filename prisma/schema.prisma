@@ -1,38 +1,60 @@
-// Starter schema — see CLAUDE.md §8: full events/venues/bookings design not yet finalized.
+// Matches docs/proposal.md exactly — the submitted proposal is the source of truth.
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL") // injected at runtime from Key Vault
 }
 
 enum Role {
-  ORGANIZER
   STUDENT
+  ORGANIZER
+  ADMIN
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+enum BookingStatus {
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+}
+
+enum PreorderStatus {
+  PENDING
+  CONFIRMED
+  FAILED
 }
 
 model User {
-  id        String   @id @default(uuid())
-  adOid     String   @unique // Entra AD object id (oid claim)
-  email     String   @unique
-  name      String
-  role      Role
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  adObjectId  String   @unique @map("ad_object_id") // Entra 'oid' claim
+  email       String   @unique
+  displayName String   @map("display_name")
+  role        Role     @default(STUDENT)
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  eventsOrganized Event[]   @relation("OrganizerEvents")
+  eventsOrganized Event[]   @relation("Organizer")
   bookings        Booking[]
+
+  @@map("users")
 }
 
 model Venue {
-  id         String  @id @default(uuid())
-  name       String
-  address    String
-  roomNumber String? @map("room_number") // required by Ticketing peer API (CLAUDE.md §5)
-  latitude   Float?
-  longitude  Float?
-  mapUrl     String? @map("map_url") // Geoapify static map link
+  id           Int     @id @default(autoincrement())
+  name         String
+  roomNumber   String? @map("room_number") // e.g. "402" - used by HelpDesk lookup
+  addressRaw   String  @map("address_raw")
+  latitude     Float? // set after geocoding
+  longitude    Float?
+  staticMapUrl String? @map("static_map_url")
+  isVerified   Boolean @default(false) @map("is_verified")
 
   events Event[]
 
@@ -40,41 +62,62 @@ model Venue {
 }
 
 model Event {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  category    String? // e.g. "tech_conference" — drives the Merch peer-API trigger
-  startsAt    DateTime
-  endsAt      DateTime
-  capacity    Int
+  id                Int         @id @default(autoincrement())
+  organizerId       Int         @map("organizer_id")
+  venueId           Int         @map("venue_id")
+  title             String
+  description       String?     @db.Text
+  capacity          Int
+  startsAt          DateTime    @map("starts_at")
+  endsAt            DateTime    @map("ends_at")
+  isLargeConference Boolean     @default(false) @map("is_large_conference")
+  status            EventStatus @default(DRAFT)
+  createdAt         DateTime    @default(now()) @map("created_at")
 
-  venueId String
-  venue   Venue  @relation(fields: [venueId], references: [id])
+  organizer User           @relation("Organizer", fields: [organizerId], references: [id])
+  venue     Venue          @relation(fields: [venueId], references: [id])
+  bookings  Booking[]
+  preorder  MerchPreorder?
 
-  organizerId String
-  organizer   User   @relation("OrganizerEvents", fields: [organizerId], references: [id])
-
-  bookings Booking[]
-
-  createdAt DateTime @default(now())
-
+  @@index([venueId])
+  @@index([organizerId])
   @@map("events")
 }
 
-enum BookingStatus {
-  CONFIRMED
-  CANCELLED
+model Booking {
+  id        Int           @id @default(autoincrement())
+  eventId   Int           @map("event_id")
+  studentId Int           @map("student_id")
+  status    BookingStatus @default(CONFIRMED)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  event   Event @relation(fields: [eventId], references: [id])
+  student User  @relation(fields: [studentId], references: [id])
+
+  @@unique([eventId, studentId]) // one booking per student per event
+  @@map("bookings")
 }
 
-model Booking {
-  id        String        @id @default(uuid())
-  eventId   String
-  event     Event         @relation(fields: [eventId], references: [id])
-  userId    String
-  user      User          @relation(fields: [userId], references: [id])
-  status    BookingStatus @default(CONFIRMED)
-  createdAt DateTime      @default(now())
+model MerchPreorder {
+  id           Int            @id @default(autoincrement())
+  eventId      Int            @unique @map("event_id") // 1:0..1 with Event
+  quantity     Int            @default(50)
+  peerOrderRef String?        @map("peer_order_ref") // ref returned by Merch API
+  status       PreorderStatus @default(PENDING)
+  createdAt    DateTime       @default(now()) @map("created_at")
 
-  @@unique([eventId, userId])
-  @@map("bookings")
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@map("merch_preorders")
+}
+
+model ApiKey {
+  id         Int      @id @default(autoincrement())
+  ownerLabel String   @map("owner_label") // e.g. "helpdesk-team"
+  keyHash    String   @map("key_hash") // store hash, never the raw key
+  scope      String // e.g. "room-status:read"
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("api_keys")
 }

@@ -4,27 +4,35 @@ const { requirePeerApiKey } = require("../middleware/apiKey");
 
 const router = express.Router();
 
-// Exposed to the Ticketing team — CLAUDE.md §5.
-// GET /api/peer/events/active?room=<number>
-router.get(
-  "/events/active",
-  requirePeerApiKey("TICKETING_PEER_API_KEY"),
-  async (req, res) => {
-    const room = req.query.room;
-    if (!room) {
-      return res.status(400).json({ error: "room query param is required" });
-    }
-
-    const events = await prisma.event.findMany({
-      where: {
-        endsAt: { gte: new Date() },
-        venue: { roomNumber: String(room) },
-      },
-      include: { venue: true },
-    });
-
-    res.json(events);
+// Exposed to the HelpDesk team (docs/proposal.md) so they can tell whether a broken-
+// projector ticket for a room affects an event happening right now.
+// GET /events/api/peer/events/active?room=<number>
+router.get("/events/active", requirePeerApiKey("room-status:read"), async (req, res) => {
+  const room = req.query.room;
+  if (!room) {
+    return res.status(400).json({ error: "room query param is required" });
   }
-);
+
+  const now = new Date();
+  const event = await prisma.event.findFirst({
+    where: {
+      status: "PUBLISHED",
+      startsAt: { lte: now },
+      endsAt: { gte: now },
+      venue: { roomNumber: String(room) },
+    },
+  });
+
+  if (!event) {
+    return res.json({ active: false });
+  }
+
+  res.json({
+    active: true,
+    eventId: event.id,
+    title: event.title,
+    endsAt: event.endsAt,
+  });
+});
 
 module.exports = router;

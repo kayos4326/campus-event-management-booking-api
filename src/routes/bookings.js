@@ -4,31 +4,46 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 
+// docs/proposal.md: RSVP reserves a seat, or joins the waitlist once the event is full.
 router.post("/", requireAuth, requireRole("STUDENT"), async (req, res) => {
   const { eventId } = req.body;
   if (!eventId) return res.status(400).json({ error: "eventId is required" });
 
   const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: { _count: { select: { bookings: true } } },
+    where: { id: Number(eventId) },
+    include: { _count: { select: { bookings: { where: { status: "CONFIRMED" } } } } },
   });
-  if (!event) return res.status(404).json({ error: "Event not found" });
-  if (event._count.bookings >= event.capacity) {
-    return res.status(409).json({ error: "Event is at capacity" });
+  if (!event || event.status !== "PUBLISHED") {
+    return res.status(404).json({ error: "Event not found" });
   }
 
+  const status = event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+
   const booking = await prisma.booking.create({
-    data: { eventId, userId: req.user.sub },
+    data: { eventId: event.id, studentId: req.user.id, status },
   });
   res.status(201).json(booking);
 });
 
 router.get("/mine", requireAuth, requireRole("STUDENT"), async (req, res) => {
   const bookings = await prisma.booking.findMany({
-    where: { userId: req.user.sub },
+    where: { studentId: req.user.id },
     include: { event: true },
   });
   res.json(bookings);
+});
+
+router.patch("/:id/cancel", requireAuth, requireRole("STUDENT"), async (req, res) => {
+  const booking = await prisma.booking.findUnique({ where: { id: Number(req.params.id) } });
+  if (!booking || booking.studentId !== req.user.id) {
+    return res.status(404).json({ error: "Booking not found" });
+  }
+
+  const cancelled = await prisma.booking.update({
+    where: { id: booking.id },
+    data: { status: "CANCELLED" },
+  });
+  res.json(cancelled);
 });
 
 module.exports = router;

@@ -5,17 +5,25 @@ Course: **CSX4110 Backend Application Development**, Semester 1/2026.
 This is "Option 3" of four class project options, in a mandatory peer-API ring
 with three other student teams.
 
+⚠️ **[docs/proposal.md](docs/proposal.md)** (and `docs/proposal.docx`) is the submitted,
+teacher-facing proposal — it is **authoritative** over this file wherever they conflict.
+This file is working notes; the proposal is the actual commitment. Group: Thar Lin Htet
+(6642062), Honey Linn (6726113), Mi Hsu Myat Win Wyint (6726115).
+
 ---
 
 ## 1. Project Concept
 
 A platform where university organizations create events and students book seats.
 
-- **Organizer flow**: logs in via university AD → creates an event (venue, time, capacity)
-- **Student flow**: logs in via university AD → RSVPs / books a seat
-- Venue address is validated and a static map is generated via an external mapping API
-- If an organizer creates a **large tech conference** event, the backend automatically
-  calls a partner team's Merchandise API to pre-order 50 blank university lanyards
+- **Organizer flow**: logs in via university Microsoft account → creates events (venue,
+  schedule, capacity), can mark one as a large conference, manages only their own events
+- **Student flow**: logs in via university Microsoft account → browses published events,
+  RSVPs (or joins the waitlist once full), cancels their own bookings
+- **Admin**: manages users/roles, issues/revokes peer API keys, sees all events/bookings
+- Venue address is validated and a static map is generated via Geoapify
+- A **large conference** event automatically triggers a call to the Merch team's API to
+  pre-order 50 blank university lanyards
 
 ---
 
@@ -75,35 +83,42 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - Vault: `campus-event-api-kv`, RBAC authorization enabled, `https://campus-event-api-kv.vault.azure.net/`
   - `khinezar.chi1@kmutt.ac.th` → *Key Vault Secrets Officer* (write)
   - `bad-vps-01`'s new system-assigned managed identity (`6990ca31-49d4-46a1-8f5a-8d6bbc117f1b`) → *Key Vault Secrets User* (read)
-  - Secrets are **not yet populated** — `database-url`, `jwt-signing-key`, `geoapify-api-key`, `merch-peer-api-key`, `ticketing-peer-api-key` (names expected by `src/config/keyvault.js`) don't exist yet; none of those values exist yet either
+  - Secrets are **not yet populated** — `database-url`, `geoapify-api-key`, `merch-peer-api-key` (names expected by `src/config/keyvault.js`) don't exist yet; none of those values exist yet either. No `jwt-signing-key` secret — auth is Entra JWKS-validated, not self-issued JWTs, so there's no shared signing secret to store. The HelpDesk peer key is **not** a Key Vault secret either — see §5, it's issued through `/events/api/admin/api-keys` and stored hashed in the `ApiKey` table.
 - ❌ **Separate Entra tenant: not possible on this subscription.** Attempted via the portal's "Create a tenant" wizard (Governed Workforce config, tenant name `campus-event-api`, domain `campuseventapi.onmicrosoft.com`, Thailand/Asia Pacific). The account (`khinezar.chi1@kmutt.ac.th`) does have tenant-creation rights in the parent KMUTT directory (the wizard itself is reachable), but **the "Azure for Students" subscription is not eligible to host a new tenant** — its subscription picker returns zero options even with an explicit advanced filter scoped to just that subscription. This matches Microsoft's known restriction on free/promotional subscription offers (fraud prevention), not a UI bug. No tenant was created; the wizard was closed without submitting.
 - ✅ **App registered 2026-09-09** in the KMUTT tenant (distinct from the lab's `backend-api-identity`):
   - Display name: `campus-event-api`, Client ID (App ID): `6426aa53-6a89-4319-8393-af36cbd48712`
   - Sign-in audience: `AzureADMyOrg` (KMUTT accounts only, matching "logs in via university AD")
   - Identifier URI: `api://6426aa53-6a89-4319-8393-af36cbd48712`
-  - App roles defined (drive the `roles` claim `src/middleware/auth.js` checks): `Organizer` (value `ORGANIZER`) and `Student` (value `STUDENT`) — matches the Prisma `Role` enum
+  - App roles defined (drive the `roles` claim `src/middleware/auth.js` resolves into a single DB `role`): `Organizer` (`ORGANIZER`), `Student` (`STUDENT`), and `Admin` (`ADMIN`, added 2026-09-09 to match the proposal's 3-role model) — matches the Prisma `Role` enum
   - Service principal (enterprise app) created so it's sign-in-able
   - `TENANT_ID`/`CLIENT_ID` filled into `.env.example`
   - **Not yet done**: no client secret created (not needed for JWT/JWKS validation as currently implemented — only add one if the backend needs to act as a confidential client later); no redirect URI configured (no frontend exists yet in this repo)
-- ✅ **Role assignment 2026-09-09**: `khinezar.chi1@kmutt.ac.th` → `Organizer` app role on `campus-event-api` (via Microsoft Graph `appRoleAssignments`, since this account is a KMUTT member). Note: the other two team accounts seen signed into the browser, `u6642062@au.edu` (Thar Lin Htet) and `u6726113@au.edu` (Honey Linn), are **AU accounts, not KMUTT** — since sign-in audience is `AzureADMyOrg` (KMUTT-only), neither can sign in or hold a role here unless first invited as a B2B guest into the KMUTT tenant. Not yet done. No one holds the `Student` role yet.
+- ✅ **Role assignment 2026-09-09**: `khinezar.chi1@kmutt.ac.th` → `Organizer` app role on `campus-event-api` (via Microsoft Graph `appRoleAssignments`, since this account is a KMUTT member). Note: the other two team accounts seen signed into the browser, `u6642062@au.edu` (Thar Lin Htet) and `u6726113@au.edu` (Honey Linn), are **AU accounts, not KMUTT** — since sign-in audience is `AzureADMyOrg` (KMUTT-only), neither can sign in or hold a role here unless first invited as a B2B guest into the KMUTT tenant. Not yet done. No one holds `Student` or `Admin` yet.
+- ⚠️ **Briefly attempted, then reverted**: switched auth to the labs' homegrown pattern (bcrypt + self-issued JWT + custom `users` table) to match what's actually *taught*, before realizing the submitted proposal explicitly commits to Entra ID/OIDC — reverted before committing. The proposal is authoritative over what the labs teach; see the note at the top of this file.
+- `src/middleware/auth.js`'s `requireAuth` upserts a local `User` row on first sign-in, keyed by the token's `oid` claim (`adObjectId`). Role is set from the token's `roles` claim **only at creation** — an existing user's role is never overwritten on later logins, since Admins manage roles through `/events/api/admin/users/:id/role` and Entra App Role assignment shouldn't silently clobber that.
 
 ---
 
 ## 5. Peer API Ring
 
 Class-wide structure: **Ticketing → Events (this project) → Merch → EduCore → Ticketing**
-Every team must both expose an endpoint and consume a partner's endpoint, all secured with a static `x-api-key`.
+(the formal 4-team ring). The team we actually expose an endpoint to runs a **HelpDesk**
+ticketing system — the proposal names them "HelpDesk," not "Ticketing"; both terms may
+refer to the same team, unconfirmed. Every team must both expose an endpoint and consume
+a partner's endpoint, all secured with `x-api-key`.
 
 ### Consume (this app → Merch team, Option 1)
-- Purpose: auto pre-order 50 blank university lanyards when a large tech conference event is created
-- Auth: static `x-api-key` issued **by** the Merch team
-- Status: Merch team originally only exposed `GET /api/products/available` (read-only, no ordering). They've **agreed to add a peer order-creation endpoint** to close this gap — exact contract not yet finalized on their side.
+- Purpose: auto pre-order 50 blank university lanyards when a large-conference event is created — `src/services/merch.js`
+- Auth: static `x-api-key` issued **by** the Merch team, stored in Key Vault as `merch-peer-api-key` (this is a key issued *to* us, so it belongs in the vault, unlike the key below)
+- Request/response per the proposal's documented example: `POST {MERCH_API_URL}/orders`, `x-api-key: <merch-peer-api-key>`, body `{item: "lanyard", quantity: 50, reference: "<eventId>"}`. Result recorded in the `MerchPreorder` table (`PENDING`→`CONFIRMED`/`FAILED`).
+- Status: Merch team originally only exposed `GET /api/products/available` (read-only, no ordering). They've **agreed to add a peer order-creation endpoint** to close this gap — exact contract, and `MERCH_API_URL`, not yet finalized on their side (§8).
 
-### Expose (Ticketing team, Option 2 → this app)
-- Endpoint: `GET /api/peer/events/active?room=<number>`
-- Auth: static `x-api-key` issued **by this app** to the Ticketing team
+### Expose (HelpDesk team, Option 2 → this app)
+- Endpoint: `GET /events/api/peer/events/active?room=<number>` — `src/routes/peer.js` (path includes `/events` because Nginx's `/events` block forwards the full URI unchanged, same as the taught `/api` block — see §3)
+- Auth: `x-api-key` issued **by this app**, generated via `POST /events/api/admin/api-keys` (Admin-only) and stored **hashed** (SHA-256) in the `ApiKey` table — not a static env var / Key Vault secret, per the proposal ("the key is stored as a hash in our database")
+- Response shape per the proposal: `{active, eventId, title, endsAt}` when an event is currently running in that room (`startsAt <= now <= endsAt`), else `{active: false}`
 - Consequence: `Venue` model needs a `room_number` column to support this query param
-- Note: Ticketing's proposal also documents a ticket-creation endpoint intended for this Events system — **not needed**, since Merch is the consume partner, not Ticketing
+- Note: the old draft's "Ticketing" proposal also documented a ticket-creation endpoint intended for this Events system — **not needed**, since Merch is the consume partner, not this team
 
 ---
 
@@ -129,11 +144,14 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 
 ## 8. Open Items (genuinely undecided — don't assume answers)
 
-- [ ] DB schema for events/venues/bookings beyond `Venue.room_number` (starter schema now in `prisma/schema.prisma`, not final)
+- [x] DB schema for events/venues/bookings → rebuilt 2026-09-09 to match `docs/proposal.md` exactly (`User`/`Venue`/`Event`/`Booking`/`MerchPreorder`/`ApiKey`, 3 roles, waitlist status). See `prisma/schema.prisma`.
 - [x] URL path for this app on `bad-vps-01` → `/events` (see §3) — Nginx block deployed and live (502 until the app itself is running on :3001)
 - [x] Whether the capstone-specific Entra tenant + Key Vault have been provisioned yet → Key Vault: yes (§4). Separate tenant: dropped as unneeded/infeasible — app registered directly in the KMUTT tenant instead (§4)
-- [ ] Geoapify API key — obtained or not
-- [ ] Merch team's peer order-creation endpoint — final request/response shape
+- [ ] Geoapify API key — obtained or not (code is ready in `src/services/geoapify.js`, reads `GEOAPIFY_API_KEY`)
+- [ ] Merch team's peer order-creation endpoint — final request/response shape, and `MERCH_API_URL` (code is ready in `src/services/merch.js`)
 - [x] Repo scaffold — done, see `src/`, `prisma/schema.prisma`, `Dockerfile`
-- [x] Assign test users to the `Organizer`/`Student` app roles on `campus-event-api` (§4) → `khinezar.chi1@kmutt.ac.th` has `Organizer`. Nobody has `Student` yet. Whether/how to get the AU-account teammates (Thar Lin Htet, Honey Linn) into the KMUTT tenant as guests so they can hold roles too — not yet decided
-- [ ] Populate the Key Vault secrets themselves (`database-url`, `jwt-signing-key`, etc. — see §4) — none of the underlying values exist yet (no DB provisioned, no JWT signing key generated)
+- [x] Assign test users to the app roles on `campus-event-api` (§4) → `khinezar.chi1@kmutt.ac.th` has `Organizer`. Nobody has `Student` or `Admin` yet. Whether/how to get the AU-account teammates (Thar Lin Htet, Honey Linn) into the KMUTT tenant as guests so they can hold roles too — not yet decided
+- [ ] Populate the Key Vault secrets (`database-url`, `geoapify-api-key`, `merch-peer-api-key` — see §4) — none of the underlying values exist yet (no DB provisioned)
+- [ ] No MySQL database actually provisioned yet — schema is written and validated (`prisma validate`/`generate` pass) but never run against a real `DATABASE_URL`, so it's unverified against an actual server
+- [ ] HelpDesk vs. "Ticketing" naming mismatch between the old draft and the submitted proposal (§5) — not confirmed which is correct / whether they're the same team
+- [ ] Whether "Admin" is a real day-to-day role for this project or just used for the demo/grading — nobody holds it yet
