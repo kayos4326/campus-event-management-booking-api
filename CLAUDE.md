@@ -39,11 +39,13 @@ A platform where university organizations create events and students book seats.
 This app deploys **alongside existing infrastructure on the same VPS** — it does not get its own box.
 
 - VM: `bad-vps-01` @ `chaotic-hell.eastasia.cloudapp.azure.com`
+- SSH: `ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com` (confirmed working)
+- System Node on the VM is **v18.19.1** (not v20) — this app's `package.json` targets `>=18.18.0` to match, rather than requiring an nvm install alongside the system Node used by `crud-api`
 - Existing routes that **must not break**:
-  - `/content` → WordPress
-  - `/api` → existing lab CRUD API (`backend-crud-api`, run under PM2 as `crud-api`)
-- This project needs **its own distinct URL path** behind the existing Nginx reverse proxy, with its own Let's Encrypt SSL coverage
-- ⚠️ **Not yet decided**: the actual path/subdomain for this app
+  - `/content` → WordPress (proxied to `127.0.0.1:8080`)
+  - `/api` → existing lab CRUD API (`backend-crud-api`, run under PM2 as `crud-api`, on `127.0.0.1:3000`)
+- **This app's path: `/events`**, proxied to `127.0.0.1:3001` (matches the scaffold's default `PORT`) — single Nginx site `azure-proxy` at `/etc/nginx/sites-available/azure-proxy`, single Certbot cert covering the whole domain (expires 2026-09-22, auto-renewed)
+- ⚠️ Nginx config for the `/events` block itself is not yet written/deployed — only decided
 
 ---
 
@@ -111,9 +113,9 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 
 ## 8. Open Items (genuinely undecided — don't assume answers)
 
-- [ ] DB schema for events/venues/bookings beyond `Venue.room_number`
-- [ ] URL path for this app on `bad-vps-01`
+- [ ] DB schema for events/venues/bookings beyond `Venue.room_number` (starter schema now in `prisma/schema.prisma`, not final)
+- [x] URL path for this app on `bad-vps-01` → `/events` (see §3) — Nginx block not yet deployed
 - [ ] Whether the capstone-specific Entra tenant + Key Vault have been provisioned yet
 - [ ] Geoapify API key — obtained or not
 - [ ] Merch team's peer order-creation endpoint — final request/response shape
-- [ ] Repo scaffold — not yet started as of this file's creation
+- [x] Repo scaffold — done, see `src/`, `prisma/schema.prisma`, `Dockerfile`
