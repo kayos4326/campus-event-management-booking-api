@@ -1,0 +1,80 @@
+// Starter schema — see CLAUDE.md §8: full events/venues/bookings design not yet finalized.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ORGANIZER
+  STUDENT
+}
+
+model User {
+  id        String   @id @default(uuid())
+  adOid     String   @unique // Entra AD object id (oid claim)
+  email     String   @unique
+  name      String
+  role      Role
+  createdAt DateTime @default(now())
+
+  eventsOrganized Event[]   @relation("OrganizerEvents")
+  bookings        Booking[]
+}
+
+model Venue {
+  id         String  @id @default(uuid())
+  name       String
+  address    String
+  roomNumber String? @map("room_number") // required by Ticketing peer API (CLAUDE.md §5)
+  latitude   Float?
+  longitude  Float?
+  mapUrl     String? @map("map_url") // Geoapify static map link
+
+  events Event[]
+
+  @@map("venues")
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  category    String? // e.g. "tech_conference" — drives the Merch peer-API trigger
+  startsAt    DateTime
+  endsAt      DateTime
+  capacity    Int
+
+  venueId String
+  venue   Venue  @relation(fields: [venueId], references: [id])
+
+  organizerId String
+  organizer   User   @relation("OrganizerEvents", fields: [organizerId], references: [id])
+
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+
+  @@map("events")
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model Booking {
+  id        String        @id @default(uuid())
+  eventId   String
+  event     Event         @relation(fields: [eventId], references: [id])
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  status    BookingStatus @default(CONFIRMED)
+  createdAt DateTime      @default(now())
+
+  @@unique([eventId, userId])
+  @@map("bookings")
+}
