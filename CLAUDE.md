@@ -46,7 +46,7 @@ This app deploys **alongside existing infrastructure on the same VPS** — it do
   - `/api` → existing lab CRUD API (`backend-crud-api`, run under PM2 as `crud-api`, on `127.0.0.1:3000`)
 - **This app's path: `/events`**, proxied to `127.0.0.1:3001` (matches the scaffold's default `PORT`) — single Nginx site `azure-proxy` at `/etc/nginx/sites-available/azure-proxy`, single Certbot cert covering the whole domain (expires 2026-09-22, auto-renewed)
 - Nginx `/events` block is **deployed and live** (config tested + reloaded 2026-09-09; pre-change config backed up on the VM as `azure-proxy.bak.20260909072045`). Currently 502s since no app is deployed to port 3001 yet — that's expected until the Node process is running there (e.g. via PM2, matching `crud-api`'s pattern).
-- ⚠️ Unrelated pre-existing issue noticed during deploy: `/content` (WordPress) is already returning 502 — nothing listens on `127.0.0.1:8080` and `docker` isn't installed on the VM. Not caused by this project's changes; flagged but not fixed.
+- ~~Unrelated pre-existing issue noticed during deploy: `/content` (WordPress) was returning 502~~ — **fixed 2026-09-09**. Root cause: WordPress runs via Apache + PHP (not Docker — no Docker is installed on this VM) from `/srv/www/wordpress`, listening on `:8080` per `/etc/apache2/ports.conf`. The VM rebooted at 07:12:59 UTC and `apache2.service` was not enabled for boot, so it stayed down. Fixed with `sudo systemctl enable --now apache2`; verified `/content` now returns 200 (after its normal redirect). MySQL (the WP DB) was unaffected throughout.
 
 ---
 
