@@ -70,7 +70,14 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - Client ID: `0840d62b-b6f2-43f1-99e3-8def7cc3455b`
   - RBAC split: self = *Key Vault Secrets Officer* (write), app identity = *Key Vault Secrets User* (read)
   - Note: East US region was blocked on the student subscription — needed a different region
-- ⚠️ **Not yet confirmed**: whether the capstone's *own* Entra tenant + Key Vault instance have actually been created, or this is still just the plan
+- ✅ **Key Vault provisioned 2026-09-09** (via Azure CLI, signed in as `khinezar.chi1@kmutt.ac.th` on the KMUTT "Azure for Students" subscription — same tenant as the lab reference, `6f4432dc-20d2-441d-b1db-ac3380ba633d`):
+  - Resource group: `campus-event-api-rg` (eastasia) — separate from `BAD-2026-RG`
+  - Vault: `campus-event-api-kv`, RBAC authorization enabled, `https://campus-event-api-kv.vault.azure.net/`
+  - `khinezar.chi1@kmutt.ac.th` → *Key Vault Secrets Officer* (write)
+  - `bad-vps-01`'s new system-assigned managed identity (`6990ca31-49d4-46a1-8f5a-8d6bbc117f1b`) → *Key Vault Secrets User* (read)
+  - Secrets are **not yet populated** — `database-url`, `jwt-signing-key`, `geoapify-api-key`, `merch-peer-api-key`, `ticketing-peer-api-key` (names expected by `src/config/keyvault.js`) don't exist yet; none of those values exist yet either
+- ❌ **Separate Entra tenant: not possible on this subscription.** Attempted via the portal's "Create a tenant" wizard (Governed Workforce config, tenant name `campus-event-api`, domain `campuseventapi.onmicrosoft.com`, Thailand/Asia Pacific). The account (`khinezar.chi1@kmutt.ac.th`) does have tenant-creation rights in the parent KMUTT directory (the wizard itself is reachable), but **the "Azure for Students" subscription is not eligible to host a new tenant** — its subscription picker returns zero options even with an explicit advanced filter scoped to just that subscription. This matches Microsoft's known restriction on free/promotional subscription offers (fraud prevention), not a UI bug. No tenant was created; the wizard was closed without submitting.
+- ✅ **Decided fallback**: register a new app (distinct from the existing `backend-api-identity`, `0840d62b-...`) within this same KMUTT tenant instead of a separate tenant. Not yet done — next step.
 
 ---
 
