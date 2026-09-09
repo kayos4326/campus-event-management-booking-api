@@ -152,8 +152,13 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 - [ ] Geoapify API key — obtained or not (code is ready in `src/services/geoapify.js`, reads `GEOAPIFY_API_KEY`)
 - [ ] Merch team's peer order-creation endpoint — final request/response shape, and `MERCH_API_URL` (code is ready in `src/services/merch.js`)
 - [x] Repo scaffold — done, see `src/`, `prisma/schema.prisma`, `Dockerfile`
-- [x] Assign test users to the app roles on `campus-event-api` (§4) → `u6642062@au.edu` (Thar Lin Htet) has all three roles (`Admin`/`Organizer`/`Student`). `u6726113@au.edu` (Honey Linn) not yet assigned — should be straightforward now since she's presumably already in AU's tenant too, no guest invite needed (that was only a concern under the old, now-abandoned KMUTT-tenant plan).
-- [ ] Populate the Key Vault secrets (`database-url`, `geoapify-api-key`, `merch-peer-api-key` — see §4) — none of the underlying values exist yet (no DB provisioned)
-- [ ] No MySQL database actually provisioned yet — schema is written and validated (`prisma validate`/`generate` pass) but never run against a real `DATABASE_URL`, so it's unverified against an actual server
+- [x] Assign test users to the app roles on `campus-event-api` (§4) → `u6642062@au.edu` (Thar Lin Htet) has all three roles (`Admin`/`Organizer`/`Student`). `u6726113@au.edu` (Honey Linn) **deliberately not assigned yet** — decided to hold off until she's actually working against the API or a multi-user demo is needed; not blocked on anything technical.
+- [x] **MySQL provisioned 2026-09-09**, following the lab's pattern (MySQL running directly on `bad-vps-01`, same server as WordPress's and `crud-api`'s databases — not a separate managed Azure DB service):
+  - Database `campus_events`, dedicated user `campus_events_user`@`localhost` (bound to localhost only — the app runs on the same VM, no need for `api_user`-style `%` remote access)
+  - Initial migration generated + applied: `prisma/migrations/20260909084726_init/` (all 6 tables — `users`, `venues`, `events`, `bookings`, `merch_preorders`, `api_keys` — confirmed present via `SHOW TABLES`)
+  - Generated on the VM itself via a throwaway bootstrap (`package.json` + `prisma/schema.prisma` copied over, `npm install`, `npx prisma migrate dev`, migration copied back into the repo, bootstrap dir deleted) — avoided opening MySQL port 3306 publicly (unlike the Week 4 lab's local-dev pattern), since the app doesn't need remote DB access in this Zero-Trust design
+  - Needed a temporary, narrowly-scoped grant (`` `prisma_migrate_shadow_db_%`.* ``) for `migrate dev`'s shadow database, **revoked immediately after** — `campus_events_user` now only has privileges on `campus_events` itself
+  - `database-url` Key Vault secret populated: `mysql://campus_events_user:<password>@127.0.0.1:3306/campus_events`
+- [x] Populate the `database-url` Key Vault secret — done above. `geoapify-api-key` and `merch-peer-api-key` still not populated (real values don't exist yet — see next two items)
 - [ ] HelpDesk vs. "Ticketing" naming mismatch between the old draft and the submitted proposal (§5) — not confirmed which is correct / whether they're the same team
 - [ ] Whether "Admin" is a real day-to-day role for this project or just used for the demo/grading — nobody holds it yet
