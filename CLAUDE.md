@@ -84,7 +84,8 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - App roles defined (drive the `roles` claim `src/middleware/auth.js` checks): `Organizer` (value `ORGANIZER`) and `Student` (value `STUDENT`) — matches the Prisma `Role` enum
   - Service principal (enterprise app) created so it's sign-in-able
   - `TENANT_ID`/`CLIENT_ID` filled into `.env.example`
-  - **Not yet done**: no client secret created (not needed for JWT/JWKS validation as currently implemented — only add one if the backend needs to act as a confidential client later); no users assigned to the `Organizer`/`Student` app roles yet, so tokens won't carry a `roles` claim until that's done; no redirect URI configured (no frontend exists yet in this repo)
+  - **Not yet done**: no client secret created (not needed for JWT/JWKS validation as currently implemented — only add one if the backend needs to act as a confidential client later); no redirect URI configured (no frontend exists yet in this repo)
+- ✅ **Role assignment 2026-09-09**: `khinezar.chi1@kmutt.ac.th` → `Organizer` app role on `campus-event-api` (via Microsoft Graph `appRoleAssignments`, since this account is a KMUTT member). Note: the other two team accounts seen signed into the browser, `u6642062@au.edu` (Thar Lin Htet) and `u6726113@au.edu` (Honey Linn), are **AU accounts, not KMUTT** — since sign-in audience is `AzureADMyOrg` (KMUTT-only), neither can sign in or hold a role here unless first invited as a B2B guest into the KMUTT tenant. Not yet done. No one holds the `Student` role yet.
 
 ---
 
@@ -134,5 +135,5 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 - [ ] Geoapify API key — obtained or not
 - [ ] Merch team's peer order-creation endpoint — final request/response shape
 - [x] Repo scaffold — done, see `src/`, `prisma/schema.prisma`, `Dockerfile`
-- [ ] Assign test users to the `Organizer`/`Student` app roles on `campus-event-api` (§4) — needed before any login actually carries a usable `roles` claim
+- [x] Assign test users to the `Organizer`/`Student` app roles on `campus-event-api` (§4) → `khinezar.chi1@kmutt.ac.th` has `Organizer`. Nobody has `Student` yet. Whether/how to get the AU-account teammates (Thar Lin Htet, Honey Linn) into the KMUTT tenant as guests so they can hold roles too — not yet decided
 - [ ] Populate the Key Vault secrets themselves (`database-url`, `jwt-signing-key`, etc. — see §4) — none of the underlying values exist yet (no DB provisioned, no JWT signing key generated)
