@@ -52,9 +52,9 @@ This app deploys **alongside existing infrastructure on the same VPS** — it do
 
 ## 4. Auth & Secrets — Rationale
 
-The school does **not** issue AD or Key Vault credentials for the capstone project itself. Plan:
+The school does **not** issue AD or Key Vault credentials for the capstone project itself. Original plan was to self-provision a fully separate Entra tenant — **dropped 2026-09-09**: the "Azure for Students" subscription isn't eligible to host a new tenant (see below), and on reflection a separate tenant wasn't the right fit anyway — the concept doc has organizers/students logging in via *actual* university AD, which a fresh empty tenant wouldn't have. Actual plan:
 
-- Self-provision a separate **Entra tenant** for this app
+- Register this app directly in the existing KMUTT tenant (same one already used for the lab's `backend-api-identity`), rather than a separate tenant
 - Self-provision a separate **Azure Key Vault**, accessed via **VM managed identity**
 - Reuse the *pattern* already proven working in the lab series' Key Vault week:
   ```
@@ -77,7 +77,14 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - `bad-vps-01`'s new system-assigned managed identity (`6990ca31-49d4-46a1-8f5a-8d6bbc117f1b`) → *Key Vault Secrets User* (read)
   - Secrets are **not yet populated** — `database-url`, `jwt-signing-key`, `geoapify-api-key`, `merch-peer-api-key`, `ticketing-peer-api-key` (names expected by `src/config/keyvault.js`) don't exist yet; none of those values exist yet either
 - ❌ **Separate Entra tenant: not possible on this subscription.** Attempted via the portal's "Create a tenant" wizard (Governed Workforce config, tenant name `campus-event-api`, domain `campuseventapi.onmicrosoft.com`, Thailand/Asia Pacific). The account (`khinezar.chi1@kmutt.ac.th`) does have tenant-creation rights in the parent KMUTT directory (the wizard itself is reachable), but **the "Azure for Students" subscription is not eligible to host a new tenant** — its subscription picker returns zero options even with an explicit advanced filter scoped to just that subscription. This matches Microsoft's known restriction on free/promotional subscription offers (fraud prevention), not a UI bug. No tenant was created; the wizard was closed without submitting.
-- ✅ **Decided fallback**: register a new app (distinct from the existing `backend-api-identity`, `0840d62b-...`) within this same KMUTT tenant instead of a separate tenant. Not yet done — next step.
+- ✅ **App registered 2026-09-09** in the KMUTT tenant (distinct from the lab's `backend-api-identity`):
+  - Display name: `campus-event-api`, Client ID (App ID): `6426aa53-6a89-4319-8393-af36cbd48712`
+  - Sign-in audience: `AzureADMyOrg` (KMUTT accounts only, matching "logs in via university AD")
+  - Identifier URI: `api://6426aa53-6a89-4319-8393-af36cbd48712`
+  - App roles defined (drive the `roles` claim `src/middleware/auth.js` checks): `Organizer` (value `ORGANIZER`) and `Student` (value `STUDENT`) — matches the Prisma `Role` enum
+  - Service principal (enterprise app) created so it's sign-in-able
+  - `TENANT_ID`/`CLIENT_ID` filled into `.env.example`
+  - **Not yet done**: no client secret created (not needed for JWT/JWKS validation as currently implemented — only add one if the backend needs to act as a confidential client later); no users assigned to the `Organizer`/`Student` app roles yet, so tokens won't carry a `roles` claim until that's done; no redirect URI configured (no frontend exists yet in this repo)
 
 ---
 
@@ -123,7 +130,9 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 
 - [ ] DB schema for events/venues/bookings beyond `Venue.room_number` (starter schema now in `prisma/schema.prisma`, not final)
 - [x] URL path for this app on `bad-vps-01` → `/events` (see §3) — Nginx block deployed and live (502 until the app itself is running on :3001)
-- [ ] Whether the capstone-specific Entra tenant + Key Vault have been provisioned yet
+- [x] Whether the capstone-specific Entra tenant + Key Vault have been provisioned yet → Key Vault: yes (§4). Separate tenant: dropped as unneeded/infeasible — app registered directly in the KMUTT tenant instead (§4)
 - [ ] Geoapify API key — obtained or not
 - [ ] Merch team's peer order-creation endpoint — final request/response shape
 - [x] Repo scaffold — done, see `src/`, `prisma/schema.prisma`, `Dockerfile`
+- [ ] Assign test users to the `Organizer`/`Student` app roles on `campus-event-api` (§4) — needed before any login actually carries a usable `roles` claim
+- [ ] Populate the Key Vault secrets themselves (`database-url`, `jwt-signing-key`, etc. — see §4) — none of the underlying values exist yet (no DB provisioned, no JWT signing key generated)
