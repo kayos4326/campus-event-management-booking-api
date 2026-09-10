@@ -72,7 +72,9 @@ const requireAuth = asyncHandler(async (req, res, next) => {
     },
   });
 
-  req.user = { ...decoded, id: user.id, role: user.role };
+  // DB fields override token claims: role and displayName/email are DB-authoritative
+  // (Admin-managed), not just whatever the token happens to say.
+  req.user = { ...decoded, id: user.id, role: user.role, email: user.email, displayName: user.displayName };
   next();
 });
 

@@ -10,14 +10,21 @@ function isOwnerOrAdmin(req, event) {
   return req.user.role === "ADMIN" || event.organizerId === req.user.id;
 }
 
-// Students/public browse only published events (docs/proposal.md); organizers/admins
-// see everything of their own via the routes below and /admin.
+// Students/public browse only published events (docs/proposal.md). ?mine=true (added
+// for the frontend's "My Events" panel — not in the original proposal) lets an
+// Organizer see their own events regardless of status, including drafts; Admins see
+// everything via /admin/events instead.
 router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
+    const where =
+      req.query.mine === "true"
+        ? { organizerId: req.user.id }
+        : { status: "PUBLISHED" };
+
     const events = await prisma.event.findMany({
-      where: { status: "PUBLISHED" },
+      where,
       include: { venue: true },
     });
     res.json(events);

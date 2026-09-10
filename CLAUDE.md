@@ -45,6 +45,7 @@ A platform where university organizations create events and students book seats.
 | Exposed endpoint | REST, `x-api-key` header auth | Generic, not tied to a specific consumer team — see §5 |
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
 | Source control | GitHub | Automated deploy via script or Docker Compose |
+| Frontend | React + Vite, `@azure/msal-react` for real login | Added 2026-09-10, matches the lab's own frontend pattern — see §9 |
 
 ---
 
@@ -107,6 +108,7 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - Service principal (enterprise app) created so it's sign-in-able
   - `TENANT_ID`/`CLIENT_ID` updated in `.env.example` to the AU values
   - **Added 2026-09-10** (needed to test with a real token — see the new subsection below): public client (device code) flow enabled; an exposed API scope `access_as_user` plus self-referencing `requiredResourceAccess`; `requestedAccessTokenVersion: 2` forced (was silently defaulting to v1.0 tokens, which would have broken every real login — see below)
+  - **Also added 2026-09-10** (for the browser frontend — see §9): a "Single-page application" platform with redirect URIs for both production and local dev
   - **Not yet done**: no client secret (still not needed — JWT/JWKS validation, no confidential-client flow yet); no redirect URI (no frontend exists yet)
 - ✅ **Role assignment 2026-09-09**: `u6642062@au.edu` → **all three** app roles (`Admin`, `Organizer`, `Student`) on the AU-tenant `campus-event-api`. `src/middleware/auth.js`'s role-priority resolution (`ADMIN` > `ORGANIZER` > `STUDENT`) means this account resolves to `ADMIN` in practice. `u6726113@au.edu` (Honey Linn) is presumably also in AU's tenant and could be assigned roles the same way — not yet done.
 - **Key Vault stays on KMUTT** (§ above) — that's purely about who's paying for the VM/vault compute, and is unrelated to the auth tenant. No change needed there; `khinezar.chi1@kmutt.ac.th`'s Key Vault Secrets Officer role and the VM's managed identity are unaffected by the auth tenant switch.
@@ -220,3 +222,29 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 - [x] HelpDesk vs. "Ticketing" naming mismatch → **moot**, dropped 2026-09-10 — the exposed endpoint is no longer scoped to any specific team (§5)
 - [x] **Full flow tested end-to-end with a real Entra token, 2026-09-10** — see the new subsection at the end of §4. Found and fixed 5 more real bugs beyond the ones already listed here (a critical v1.0-vs-v2.0 token mismatch that would have blocked every real login, a Prisma column-length error, a systemic Express-4 async-error-hanging issue across every route, a falsy-value validation bug, and an unhandled duplicate-booking error). This is the first time the actual HTTP request → auth → business logic → DB path was exercised for real, rather than in pieces.
 - [ ] Whether "Admin" is a real day-to-day role for this project or just used for the demo/grading — nobody holds it yet
+
+---
+
+## 9. Frontend (`frontend-ui/`) — added 2026-09-10
+
+React + Vite, matching the lab's own frontend pattern (`npm create vite@latest ... --
+template react`, built and served by Express — see §7) rather than a separate hosting
+setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
+
+- **Real Microsoft login**, not a mock — `@azure/msal-browser` + `@azure/msal-react`, `loginRedirect`/`logoutRedirect` (see below for why not `loginPopup`)
+- `vite.config.js` sets `base: '/events/'` — required since the build is served from under that path, not domain root
+- `src/app.js` serves `frontend-ui/dist` as static files, mounted **after** all `/events/api/*` routes so the API is never shadowed by the frontend catch-all
+- `deploy.sh` now builds the frontend (`npm run build` in `frontend-ui/`) as its first step and ships `dist/` alongside the backend — `dist/` itself is gitignored (lab convention: built fresh at deploy time, not committed)
+- Added `cors` middleware (`app.use(cors())`, no origin restriction) so `npm run dev` on `localhost:5173` can call the deployed API directly — `frontend-ui/.env.development` points local dev at the live backend, since there's no separate local backend+DB to run against
+- Added `GET /events/api/me` (`src/routes/me.js`) so the frontend can learn the logged-in user's **DB-authoritative** role (not the token's `roles` claim, which isn't updated after Admin-managed role changes — see §4) — `req.user` in `requireAuth` now also carries `email`/`displayName` from the DB row, not raw token claims
+- Added `GET /events/api/events?mine=true` (in `src/routes/events.js`) so an Organizer can see their own events including drafts — the original proposal only specified the public PUBLISHED-only browse view and admin's see-everything view; there was no "my own events" endpoint until the frontend needed one
+
+**App registration changes needed for browser-based login** (separate from the device-code setup used for the earlier CLI-driven token tests — a browser SPA needs its own platform config):
+- Added a "Single-page application" platform with redirect URIs: `https://chaotic-hell.eastasia.cloudapp.azure.com/events/` (production) and `http://localhost:5173/` (local dev)
+- `instance.loginPopup(...)` **does not work** in the sandboxed browser environment used to test this (`BrowserAuthError: popup_window_error` — likely a `window.open()` restriction in that specific sandbox). Switched to `instance.loginRedirect(...)`/`logoutRedirect(...)`, which is also just more robust in general (no popup-blocker dependency) — confirmed working end-to-end afterward with a real login as `u6642062@au.edu`
+
+**Bug found via real browser click-testing** (not just curl): changing your own role away from Admin in the Admin panel correctly updates the DB, but the panel's own subsequent data reload then fails (you're no longer authorized for `/admin/*`) — and since `AdminPanel.jsx`'s `loadAll()` had no `.catch()`, that failure was silent: the table just went stale with zero indication anything was wrong. Same missing-`.catch()` gap existed in `OrganizerPanel.jsx`'s venue/event loaders. Fixed: proper error messages on all of them. (Thar's role was manually restored to `ADMIN` afterward via direct DB update, since he'd locked himself out of the Admin panel testing this.)
+
+**Verified working end-to-end in a real browser**: login → redirect through Microsoft
+→ back to the app → `/me` resolves the correct role → role-appropriate tabs render →
+Admin panel loads real (empty, post-cleanup) data correctly.
