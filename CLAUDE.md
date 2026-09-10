@@ -106,11 +106,46 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - Same 3 app roles as before: `Organizer` (`ORGANIZER`), `Student` (`STUDENT`), `Admin` (`ADMIN`) — matches the Prisma `Role` enum
   - Service principal (enterprise app) created so it's sign-in-able
   - `TENANT_ID`/`CLIENT_ID` updated in `.env.example` to the AU values
+  - **Added 2026-09-10** (needed to test with a real token — see the new subsection below): public client (device code) flow enabled; an exposed API scope `access_as_user` plus self-referencing `requiredResourceAccess`; `requestedAccessTokenVersion: 2` forced (was silently defaulting to v1.0 tokens, which would have broken every real login — see below)
   - **Not yet done**: no client secret (still not needed — JWT/JWKS validation, no confidential-client flow yet); no redirect URI (no frontend exists yet)
 - ✅ **Role assignment 2026-09-09**: `u6642062@au.edu` → **all three** app roles (`Admin`, `Organizer`, `Student`) on the AU-tenant `campus-event-api`. `src/middleware/auth.js`'s role-priority resolution (`ADMIN` > `ORGANIZER` > `STUDENT`) means this account resolves to `ADMIN` in practice. `u6726113@au.edu` (Honey Linn) is presumably also in AU's tenant and could be assigned roles the same way — not yet done.
 - **Key Vault stays on KMUTT** (§ above) — that's purely about who's paying for the VM/vault compute, and is unrelated to the auth tenant. No change needed there; `khinezar.chi1@kmutt.ac.th`'s Key Vault Secrets Officer role and the VM's managed identity are unaffected by the auth tenant switch.
 - ⚠️ **Also briefly attempted, then reverted**: switched auth to the labs' homegrown pattern (bcrypt + self-issued JWT + custom `users` table) to match what's actually *taught*, before realizing the submitted proposal explicitly commits to Entra ID/OIDC — reverted before committing. The proposal is authoritative over what the labs teach; see the note at the top of this file.
 - `src/middleware/auth.js`'s `requireAuth` upserts a local `User` row on first sign-in, keyed by the token's `oid` claim (`adObjectId`). Role is set from the token's `roles` claim **only at creation** — an existing user's role is never overwritten on later logins, since Admins manage roles through `/events/api/admin/users/:id/role` and Entra App Role assignment shouldn't silently clobber that.
+
+### Real end-to-end test with a real Entra token, 2026-09-10 — found several serious bugs
+
+Everything up to this point had only ever been verified as a `401`/`404` on missing auth,
+or via direct Prisma calls bypassing the HTTP layer entirely. Nobody had ever logged in
+for real and walked a full request through `requireAuth` into an actual query. Doing that
+surfaced problems that no amount of testing at the layers below would have caught.
+
+**App registration changes needed just to acquire a token at all** (none of this existed
+before — the app had no way to issue itself a token for testing without a frontend):
+- `az ad app update --is-fallback-public-client true` — enables the device-code flow (no client secret exists)
+- Added an exposed API scope (`api://<clientId>/access_as_user`) plus a **self-referencing** `requiredResourceAccess` (the app requesting a scope on itself, since there's no separate client app) — without this, token requests failed outright with `AADSTS650057: Invalid resource`
+- ❗ **`requestedAccessTokenVersion` was never set, so Azure AD was issuing v1.0 tokens** (`ver: "1.0"`, issuer `sts.windows.net/...`) for this API resource — but `src/middleware/auth.js` was written expecting v2.0 tokens (issuer `login.microsoftonline.com/.../v2.0`, bare-GUID audience). **This meant no real user could ever have successfully authenticated against this API — every real login would have failed the issuer check.** Fixed with `az rest PATCH .../applications/{id}` setting `api.requestedAccessTokenVersion: 2`. Re-acquired a token afterward and confirmed `ver: "2.0"`, correct issuer, correct audience (`f581260c-...`, no `api://` prefix), `preferred_username` present.
+
+**Bugs found once real requests actually reached the app** (all fixed, all committed):
+1. **`static_map_url` column too short.** Prisma's default `String` → MySQL `VARCHAR(191)`; the generated Geoapify static-map URL is longer than that. Venue creation failed with Prisma error `P2000`. Fixed: `staticMapUrl String? @db.Text` (migration `20260910142109_fix_static_map_url_length`).
+2. **That failure hung the request for a full minute instead of returning an error.** Express 4 does not forward a rejected promise from an async route handler to the error-handling middleware (that's an Express 5 feature) — an unhandled rejection just hangs until Nginx's own timeout fires, returning a bare `504`. This wasn't specific to venues — **every async route handler and every async middleware in the app had this problem**, including `requireAuth` and `requirePeerApiKey` themselves. Fixed with a small `asyncHandler` wrapper (`src/middleware/asyncHandler.js`) applied to all ~20 handlers across every route file and both auth middlewares.
+3. **`capacity: 0` was rejected with a misleading "Missing required event fields."** Classic JS falsy-value bug: `!capacity` treats `0` as missing. Fixed with an explicit `Number.isInteger(capacity) && capacity >= 1` check and its own error message.
+4. **Duplicate booking (re-booking an event you already booked) surfaced as a generic `500`.** The DB's unique constraint (`P2002` on `[eventId, studentId]`) was working correctly, just not caught. Fixed: catch `P2002` in the bookings POST route, return `409 "You have already booked this event"`.
+
+**What was actually verified working, end-to-end, with a real token, against the live
+deployed app** (all test data cleaned up afterward, Thar's role restored to `ADMIN`):
+venue creation (real Geoapify call) → event creation as Organizer → a second, genuinely
+distinct student (seeded directly, to test real multi-user isolation) fills an event's
+capacity → the real account books the same event via HTTP and correctly lands in
+`WAITLISTED` → duplicate-booking rejection → booking cancellation → cross-user booking
+cancellation is correctly blocked (404, not 403 — doesn't leak existence) → organizer
+event update/attendee-list/cancel, all ownership-checked → a large-conference event
+correctly triggers the Discord webhook (real message id stored) → the room-status peer
+endpoint correctly reflects the live event and correctly rejects a wrong/revoked API key
+→ Admin-only routes correctly reject a non-Admin (`403`) and vice versa. Role switching
+was done through `PATCH /admin/users/:id/role` (proper HTTP path) for Admin→Student, and
+directly via Prisma for Student→Organizer (a Student can't call the Admin-only role
+endpoint on themselves — expected, not a bug).
 
 ---
 
@@ -183,4 +218,5 @@ These aren't part of this repo, but are proven approaches worth mirroring:
   - `database-url` Key Vault secret populated: `mysql://campus_events_user:<password>@127.0.0.1:3306/campus_events`
 - [x] Populate the `database-url` Key Vault secret — done above. `geoapify-api-key` and `merch-peer-api-key` still not populated (real values don't exist yet — see next two items)
 - [x] HelpDesk vs. "Ticketing" naming mismatch → **moot**, dropped 2026-09-10 — the exposed endpoint is no longer scoped to any specific team (§5)
+- [x] **Full flow tested end-to-end with a real Entra token, 2026-09-10** — see the new subsection at the end of §4. Found and fixed 5 more real bugs beyond the ones already listed here (a critical v1.0-vs-v2.0 token mismatch that would have blocked every real login, a Prisma column-length error, a systemic Express-4 async-error-hanging issue across every route, a falsy-value validation bug, and an unhandled duplicate-booking error). This is the first time the actual HTTP request → auth → business logic → DB path was exercised for real, rather than in pieces.
 - [ ] Whether "Admin" is a real day-to-day role for this project or just used for the demo/grading — nobody holds it yet

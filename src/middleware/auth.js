@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const jwksClient = require("jwks-rsa");
 const { prisma } = require("../services/prisma");
+const { asyncHandler } = require("./asyncHandler");
 
 // Validates Entra ID (AD) access tokens — docs/proposal.md: "Authentication: Microsoft
 // Active Directory (Entra ID, OIDC)". Requires TENANT_ID + CLIENT_ID (audience) set via
@@ -39,7 +40,10 @@ function resolveRole(claimRoles) {
   return ROLE_PRIORITY.find((r) => (claimRoles || []).includes(r)) || "STUDENT";
 }
 
-async function requireAuth(req, res, next) {
+// asyncHandler wrapped: this runs on every authenticated request, and its
+// prisma.user.upsert() call can throw — without wrapping, Express 4 would hang the
+// request instead of returning an error (confirmed directly — see asyncHandler.js).
+const requireAuth = asyncHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing bearer token" });
@@ -70,7 +74,7 @@ async function requireAuth(req, res, next) {
 
   req.user = { ...decoded, id: user.id, role: user.role };
   next();
-}
+});
 
 function requireRole(...roles) {
   return (req, res, next) => {

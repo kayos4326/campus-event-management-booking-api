@@ -55,7 +55,7 @@ model Venue {
   addressRaw   String  @map("address_raw")
   latitude     Float? // set after geocoding
   longitude    Float?
-  staticMapUrl String? @map("static_map_url")
+  staticMapUrl String? @map("static_map_url") @db.Text // Prisma's default String is VARCHAR(191); the generated map URL is longer
   isVerified   Boolean @default(false) @map("is_verified")
 
   events Event[]
