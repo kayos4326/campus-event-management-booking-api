@@ -9,13 +9,19 @@ if (!globalThis.crypto) {
 require("dotenv").config();
 
 const { loadSecrets } = require("./config/keyvault");
-const { createApp } = require("./app");
 
 const PORT = process.env.PORT || 3001;
 
 async function bootstrapServer() {
   await loadSecrets();
 
+  // Deferred until after loadSecrets(): app.js transitively requires
+  // services/prisma.js, which constructs `new PrismaClient()` at module-load time.
+  // PrismaClient reads and caches DATABASE_URL at construction, not per-query —
+  // confirmed directly (a client built before DATABASE_URL is set fails on every
+  // later query even once the env var is set). Matches the taught pattern: Week 9's
+  // lab constructs PrismaClient inside bootstrapServer(), after the secret fetch.
+  const { createApp } = require("./app");
   const app = createApp();
   app.listen(PORT, () => {
     console.log(`campus-event-api listening on :${PORT}`);
