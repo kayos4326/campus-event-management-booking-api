@@ -64,8 +64,8 @@ router.post("/", requireAuth, requireRole("ORGANIZER", "ADMIN"), async (req, res
   });
 
   if (event.isLargeConference) {
-    // Best-effort — a failed peer call shouldn't block event creation.
-    preorderLanyards(event.id).catch(() => {});
+    // Best-effort — a failed notification shouldn't block event creation.
+    preorderLanyards(event).catch(() => {});
   }
 
   res.status(201).json(event);

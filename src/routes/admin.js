@@ -36,8 +36,9 @@ router.get("/bookings", async (req, res) => {
   res.json(bookings);
 });
 
-// Issue a peer API key (e.g. for the HelpDesk team). The raw key is returned exactly
-// once — only its hash is persisted (docs/proposal.md).
+// Issue an API key for the exposed room-status endpoint (not tied to a specific
+// consumer team — CLAUDE.md §5). The raw key is returned exactly once — only its hash
+// is persisted.
 router.post("/api-keys", async (req, res) => {
   const { ownerLabel, scope } = req.body;
   if (!ownerLabel || !scope) {

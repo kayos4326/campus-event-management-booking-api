@@ -1,4 +1,6 @@
-// Matches docs/proposal.md exactly — the submitted proposal is the source of truth.
+// Matches docs/proposal.md, amended 2026-09-10 per CLAUDE.md §5: the peer-to-classmate
+// API integration (Merch/HelpDesk) was replaced with a genuine public API (Discord
+// webhook) for the consume side; the exposed endpoint stays but isn't team-specific.
 generator client {
   provider = "prisma-client-js"
 }
@@ -49,7 +51,7 @@ model User {
 model Venue {
   id           Int     @id @default(autoincrement())
   name         String
-  roomNumber   String? @map("room_number") // e.g. "402" - used by HelpDesk lookup
+  roomNumber   String? @map("room_number") // e.g. "402" - used by the exposed room-status lookup
   addressRaw   String  @map("address_raw")
   latitude     Float? // set after geocoding
   longitude    Float?
@@ -102,7 +104,7 @@ model MerchPreorder {
   id           Int            @id @default(autoincrement())
   eventId      Int            @unique @map("event_id") // 1:0..1 with Event
   quantity     Int            @default(50)
-  peerOrderRef String?        @map("peer_order_ref") // ref returned by Merch API
+  peerOrderRef String?        @map("peer_order_ref") // Discord message id from the webhook post
   status       PreorderStatus @default(PENDING)
   createdAt    DateTime       @default(now()) @map("created_at")
 
@@ -113,7 +115,7 @@ model MerchPreorder {
 
 model ApiKey {
   id         Int      @id @default(autoincrement())
-  ownerLabel String   @map("owner_label") // e.g. "helpdesk-team"
+  ownerLabel String   @map("owner_label") // free-text label for whoever the key was issued to
   keyHash    String   @map("key_hash") // store hash, never the raw key
   scope      String // e.g. "room-status:read"
   isActive   Boolean  @default(true) @map("is_active")

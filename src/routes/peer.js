@@ -4,8 +4,9 @@ const { requirePeerApiKey } = require("../middleware/apiKey");
 
 const router = express.Router();
 
-// Exposed to the HelpDesk team (docs/proposal.md) so they can tell whether a broken-
-// projector ticket for a room affects an event happening right now.
+// Public-facing room-status check — tells any holder of a valid API key (issued via
+// /events/api/admin/api-keys) whether an event is currently happening in a given room.
+// Not tied to any specific consumer team as of the 2026-09-10 scope change (CLAUDE.md §5).
 // GET /events/api/peer/events/active?room=<number>
 router.get("/events/active", requirePeerApiKey("room-status:read"), async (req, res) => {
   const room = req.query.room;
