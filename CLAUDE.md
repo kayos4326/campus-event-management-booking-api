@@ -46,6 +46,7 @@ A platform where university organizations create events and students book seats.
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
 | Source control | GitHub | Automated deploy via script or Docker Compose |
 | Frontend | React + Vite, `@azure/msal-react` for real login | Added 2026-09-10, matches the lab's own frontend pattern — see §9 |
+| Testing | Jest + Supertest, `npm test` | Added 2026-09-10 — Prisma/auth/Geoapify/Discord all mocked, no live dependencies needed — see §8 |
 
 ---
 
@@ -221,7 +222,8 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 - [x] Populate the `database-url` Key Vault secret — done above. `geoapify-api-key` and `merch-peer-api-key` still not populated (real values don't exist yet — see next two items)
 - [x] HelpDesk vs. "Ticketing" naming mismatch → **moot**, dropped 2026-09-10 — the exposed endpoint is no longer scoped to any specific team (§5)
 - [x] **Full flow tested end-to-end with a real Entra token, 2026-09-10** — see the new subsection at the end of §4. Found and fixed 5 more real bugs beyond the ones already listed here (a critical v1.0-vs-v2.0 token mismatch that would have blocked every real login, a Prisma column-length error, a systemic Express-4 async-error-hanging issue across every route, a falsy-value validation bug, and an unhandled duplicate-booking error). This is the first time the actual HTTP request → auth → business logic → DB path was exercised for real, rather than in pieces.
-- [ ] Whether "Admin" is a real day-to-day role for this project or just used for the demo/grading — nobody holds it yet
+- [x] Whether "Admin" is a real day-to-day role → **decided 2026-09-10: real**, not just a demo/grading convenience. `u6642062@au.edu` continues to hold it day-to-day.
+- [x] **Automated test suite added 2026-09-10.** Everything up to this point had been verified by hand (curl, real browser clicks) — thorough, but not repeatable. `npm test` (Jest + Supertest, `tests/unit/` + `tests/integration/`) now runs 55 tests with zero external dependencies — Prisma, `requireAuth`'s JWT verification, Geoapify, and Discord are all mocked (`tests/integration/testApp.js` keeps the *real* `requireRole` authorization logic, only the token-verification part of `requireAuth` is stubbed), so it needs no live DB, no Entra login, no network access at all. Several tests are direct regression tests for bugs found during the real end-to-end testing (§4, §8): the waitlist/duplicate-booking/`capacity: 0`/confidence-threshold bugs, plus ownership and role-gating checks across every route. `resolveRole` was exported from `auth.js` for direct unit testing (previously private).
 
 ---
 

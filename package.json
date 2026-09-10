@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "test": "jest"
   },
   "dependencies": {
     "@azure/identity": "^4.4.1",
@@ -23,7 +24,9 @@
     "jwks-rsa": "^3.1.0"
   },
   "devDependencies": {
-    "prisma": "6.19.3"
+    "jest": "^30.5.1",
+    "prisma": "6.19.3",
+    "supertest": "^7.2.2"
   },
   "engines": {
     "node": ">=18.18.0"
