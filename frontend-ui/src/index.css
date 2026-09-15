@@ -88,6 +88,7 @@ button.link { background: none; color: #4c5fd5; text-decoration: underline; padd
 .attendee-list { margin: 10px 0 0; padding-left: 18px; font-size: 0.85rem; }
 .key-display { display: block; background: #f0f0f5; padding: 10px; border-radius: 6px; word-break: break-all; margin: 8px 0; }
 .error { background: #f8d7da; color: #b02a37; padding: 8px 12px; border-radius: 6px; }
+.notice { background: #d1e7dd; color: #0f5132; padding: 8px 12px; border-radius: 6px; }
 
 section { margin-bottom: 32px; }
 h2 { font-size: 1.15rem; }

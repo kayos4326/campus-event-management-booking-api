@@ -58,14 +58,26 @@ export default function OrganizerPanel({ api }) {
   }
 
   const cancelEvent = async (id) => {
-    await api.delete(`/events/${id}`)
-    loadEvents()
+    if (!window.confirm('Cancel this event? Every confirmed and waitlisted booking for it will be cancelled too.')) return
+    setError('')
+    try {
+      await api.delete(`/events/${id}`)
+      loadEvents()
+      if (attendeesFor === id) viewAttendees(id)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Cancelling the event failed')
+    }
   }
 
   const viewAttendees = async (id) => {
     setAttendeesFor(id)
-    const res = await api.get(`/events/${id}/bookings`)
-    setAttendees(res.data)
+    setAttendees([])
+    try {
+      const res = await api.get(`/events/${id}/bookings`)
+      setAttendees(res.data)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load attendees')
+    }
   }
 
   return (

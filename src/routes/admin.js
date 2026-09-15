@@ -4,6 +4,7 @@ const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { hashApiKey } = require("../middleware/apiKey");
 const { asyncHandler } = require("../middleware/asyncHandler");
+const { parseId } = require("../utils/http");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("ADMIN"));
@@ -21,12 +22,18 @@ router.get(
 router.patch(
   "/users/:id/role",
   asyncHandler(async (req, res) => {
+    const id = parseId(req.params.id);
     const { role } = req.body;
     if (!["STUDENT", "ORGANIZER", "ADMIN"].includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
+    // Demoting yourself locks you out of this panel immediately, with no way back
+    // through the app (happened twice during testing). Another Admin has to do it.
+    if (id === req.user.id && role !== "ADMIN") {
+      return res.status(400).json({ error: "You can't remove your own Admin role — ask another Admin" });
+    }
     const user = await prisma.user.update({
-      where: { id: Number(req.params.id) },
+      where: { id },
       data: { role },
     });
     res.json(user);
@@ -73,7 +80,7 @@ router.delete(
   "/api-keys/:id",
   asyncHandler(async (req, res) => {
     const apiKey = await prisma.apiKey.update({
-      where: { id: Number(req.params.id) },
+      where: { id: parseId(req.params.id) },
       data: { isActive: false },
     });
     res.json(apiKey);

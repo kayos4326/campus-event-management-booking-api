@@ -16,8 +16,11 @@ const TABS_BY_ROLE = {
     ['events', 'Events'],
     ['organizer', 'My Events'],
   ],
+  // Admins can do everything an Organizer can (the API allows it), and role priority
+  // means anyone holding both app roles resolves to ADMIN — so they need My Events too.
   ADMIN: [
     ['events', 'Events'],
+    ['organizer', 'My Events'],
     ['admin', 'Admin'],
   ],
 }
@@ -81,8 +84,8 @@ function App() {
       <main className="content">
         {tab === 'events' && <EventsBrowse api={api} role={me.role} />}
         {tab === 'bookings' && me.role === 'STUDENT' && <MyBookings api={api} />}
-        {tab === 'organizer' && me.role === 'ORGANIZER' && <OrganizerPanel api={api} />}
-        {tab === 'admin' && me.role === 'ADMIN' && <AdminPanel api={api} />}
+        {tab === 'organizer' && ['ORGANIZER', 'ADMIN'].includes(me.role) && <OrganizerPanel api={api} />}
+        {tab === 'admin' && me.role === 'ADMIN' && <AdminPanel api={api} me={me} />}
       </main>
     </div>
   )

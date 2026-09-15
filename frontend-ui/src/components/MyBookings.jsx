@@ -11,11 +11,12 @@ export default function MyBookings({ api }) {
   useEffect(() => { load() }, [api])
 
   const cancel = async (id) => {
+    setError('')
     try {
       await api.patch(`/bookings/${id}/cancel`)
       load()
-    } catch {
-      setError('Cancel failed')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Cancel failed')
     }
   }
 
@@ -34,6 +35,9 @@ export default function MyBookings({ api }) {
             </p>
             {b.status !== 'CANCELLED' && (
               <button onClick={() => cancel(b.id)}>Cancel</button>
+            )}
+            {b.status === 'CANCELLED' && b.event.status === 'PUBLISHED' && (
+              <p className="meta">Changed your mind? RSVP again from the Events tab.</p>
             )}
           </div>
         ))}

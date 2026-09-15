@@ -8,6 +8,7 @@ const bookingsRouter = require("./routes/bookings");
 const peerRouter = require("./routes/peer");
 const adminRouter = require("./routes/admin");
 const meRouter = require("./routes/me");
+const { HttpError } = require("./utils/http");
 
 function createApp() {
   const app = express();
@@ -31,6 +32,16 @@ function createApp() {
   app.use("/events", express.static(path.join(__dirname, "../frontend-ui/dist")));
 
   app.use((err, req, res, next) => {
+    if (err instanceof HttpError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    if (err.type === "entity.parse.failed") {
+      return res.status(400).json({ error: "Request body is not valid JSON" });
+    }
+    // P2025: the record to update doesn't exist (e.g. a role change for an unknown user id).
+    if (err.code === "P2025") {
+      return res.status(404).json({ error: "Not found" });
+    }
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
   });

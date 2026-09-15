@@ -19,12 +19,22 @@ jest.mock("../../src/middleware/auth", () => {
 
 jest.mock("../../src/services/prisma", () => ({
   prisma: {
-    venue: { findMany: jest.fn(), create: jest.fn() },
+    venue: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
     event: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-    booking: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    booking: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      count: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     user: { findMany: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     apiKey: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     merchPreorder: { create: jest.fn(), update: jest.fn() },
+    // Interactive transactions just run the callback against this same mock client.
+    $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   },
 }));
 
@@ -46,9 +56,16 @@ function setUser(user) {
 }
 
 function resetMocks() {
-  Object.values(prisma).forEach((model) => {
+  Object.entries(prisma).forEach(([key, model]) => {
+    if (key.startsWith("$")) return model.mockReset();
     Object.values(model).forEach((fn) => fn.mockReset());
   });
+  prisma.$transaction.mockImplementation((fn) => fn(prisma));
+  prisma.$queryRaw.mockResolvedValue([]);
+  // Seat-bookkeeping defaults: no confirmed seats and nobody waitlisted, unless a test says so.
+  prisma.booking.count.mockResolvedValue(0);
+  prisma.booking.findMany.mockResolvedValue([]);
+  prisma.booking.updateMany.mockResolvedValue({ count: 0 });
   geocodeAddress.mockReset();
   preorderLanyards.mockClear();
   mockCurrentUser = { id: 1, role: "STUDENT" };

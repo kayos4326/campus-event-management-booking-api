@@ -47,6 +47,30 @@ describe("PATCH /events/api/admin/users/:id/role", () => {
     expect(res.status).toBe(200);
     expect(res.body.role).toBe("ORGANIZER");
   });
+
+  // Regression test for a real lockout: an Admin demoting themselves loses access to
+  // this panel immediately, with no way back through the app (happened twice).
+  test.each(["STUDENT", "ORGANIZER"])("400 when an Admin tries to change their own role to %s", async (role) => {
+    setUser({ id: 1, role: "ADMIN" });
+
+    const res = await request(app)
+      .patch("/events/api/admin/users/1/role")
+      .send({ role });
+
+    expect(res.status).toBe(400);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  test("404 (not 500) when the user id doesn't exist (Prisma P2025)", async () => {
+    setUser({ id: 1, role: "ADMIN" });
+    prisma.user.update.mockRejectedValue(Object.assign(new Error("Record not found"), { code: "P2025" }));
+
+    const res = await request(app)
+      .patch("/events/api/admin/users/999/role")
+      .send({ role: "ORGANIZER" });
+
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("POST /events/api/admin/api-keys", () => {

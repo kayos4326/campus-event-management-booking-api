@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 export default function EventsBrowse({ api, role }) {
   const [events, setEvents] = useState([])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [busyId, setBusyId] = useState(null)
 
   const load = () => {
@@ -14,8 +15,12 @@ export default function EventsBrowse({ api, role }) {
   const book = async (eventId) => {
     setBusyId(eventId)
     setError('')
+    setNotice('')
     try {
-      await api.post('/bookings', { eventId })
+      const res = await api.post('/bookings', { eventId })
+      setNotice(res.data.status === 'WAITLISTED'
+        ? "This event is full — you're on the waitlist. You'll get a seat automatically if someone cancels."
+        : "You're booked — your seat is confirmed.")
       load()
     } catch (err) {
       setError(err.response?.data?.error || 'Booking failed')
@@ -28,6 +33,7 @@ export default function EventsBrowse({ api, role }) {
     <div>
       <h2>Published Events</h2>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="notice">{notice}</p>}
       {events.length === 0 && <p>No published events yet.</p>}
       <div className="card-grid">
         {events.map((e) => (

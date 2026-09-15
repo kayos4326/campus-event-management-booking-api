@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export default function AdminPanel({ api }) {
+export default function AdminPanel({ api, me }) {
   const [users, setUsers] = useState([])
   const [events, setEvents] = useState([])
   const [bookings, setBookings] = useState([])
@@ -22,9 +22,13 @@ export default function AdminPanel({ api }) {
 
   useEffect(() => { loadAll() }, [api])
 
-  const changeRole = async (id, role) => {
+  const changeRole = async (user, role) => {
+    // These buttons used to act on a single click — one stray click is the likeliest
+    // way Thar's own account ended up as ORGANIZER on 2026-09-10.
+    if (!window.confirm(`Change ${user.displayName} from ${user.role} to ${role}?`)) return
+    setError('')
     try {
-      await api.patch(`/admin/users/${id}/role`, { role })
+      await api.patch(`/admin/users/${user.id}/role`, { role })
       loadAll()
     } catch (err) {
       setError(err.response?.data?.error || 'Role change failed')
@@ -45,8 +49,13 @@ export default function AdminPanel({ api }) {
   }
 
   const revokeKey = async (id) => {
-    await api.delete(`/admin/api-keys/${id}`)
-    setApiKeys(apiKeys.filter((k) => k.id !== id))
+    try {
+      await api.delete(`/admin/api-keys/${id}`)
+      setApiKeys(apiKeys.filter((k) => k.id !== id))
+      setNewKey(null)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Revoking the key failed')
+    }
   }
 
   return (
@@ -65,9 +74,13 @@ export default function AdminPanel({ api }) {
                 <td>{u.email}</td>
                 <td>{u.role}</td>
                 <td>
-                  {['STUDENT', 'ORGANIZER', 'ADMIN'].filter((r) => r !== u.role).map((r) => (
-                    <button key={r} onClick={() => changeRole(u.id, r)}>{r}</button>
-                  ))}
+                  {u.id === me?.id ? (
+                    <span className="meta">That's you — another Admin has to change your role</span>
+                  ) : (
+                    ['STUDENT', 'ORGANIZER', 'ADMIN'].filter((r) => r !== u.role).map((r) => (
+                      <button key={r} onClick={() => changeRole(u, r)}>{r}</button>
+                    ))
+                  )}
                 </td>
               </tr>
             ))}
