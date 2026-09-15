@@ -22,10 +22,10 @@ function isOwnerOrAdmin(req, event) {
 
 // `new Date("garbage")` doesn't throw, it's an Invalid Date that Prisma then rejects
 // with a generic 500 — checked up front so the caller gets a clear 400 instead.
-function parseDate(value, field) {
+function parseDate(value, label) {
   const date = new Date(value);
   if ((typeof value !== "string" && typeof value !== "number") || Number.isNaN(date.getTime())) {
-    throw new HttpError(400, `${field} must be a valid date`);
+    throw new HttpError(400, `${label} must be a valid date`);
   }
   return date;
 }
@@ -101,12 +101,12 @@ router.post(
       return res.status(400).json({ error: "Missing required event fields" });
     }
     if (!Number.isInteger(capacity) || capacity < 1) {
-      return res.status(400).json({ error: "capacity must be a positive integer" });
+      return res.status(400).json({ error: "Capacity must be a whole number of at least 1" });
     }
-    const start = parseDate(startsAt, "startsAt");
-    const end = parseDate(endsAt, "endsAt");
+    const start = parseDate(startsAt, "Start time");
+    const end = parseDate(endsAt, "End time");
     if (end <= start) {
-      return res.status(400).json({ error: "endsAt must be after startsAt" });
+      return res.status(400).json({ error: "The event must end after it starts" });
     }
     if (status !== undefined && status !== "DRAFT" && status !== "PUBLISHED") {
       return res.status(400).json({ error: "status must be DRAFT or PUBLISHED" });
@@ -115,7 +115,7 @@ router.post(
       ? await prisma.venue.findUnique({ where: { id: Number(venueId) } })
       : null;
     if (!venue) {
-      return res.status(400).json({ error: "venueId does not match an existing venue" });
+      return res.status(400).json({ error: "That venue doesn't exist" });
     }
 
     const event = await prisma.event.create({
@@ -150,16 +150,16 @@ router.patch(
     const { title, description, startsAt, endsAt, capacity, status } = req.body;
 
     if (title !== undefined && (typeof title !== "string" || !title.trim())) {
-      return res.status(400).json({ error: "title cannot be empty" });
+      return res.status(400).json({ error: "Title can't be empty" });
     }
     if (capacity !== undefined && (!Number.isInteger(capacity) || capacity < 1)) {
-      return res.status(400).json({ error: "capacity must be a positive integer" });
+      return res.status(400).json({ error: "Capacity must be a whole number of at least 1" });
     }
     if (status !== undefined && !EVENT_STATUSES.includes(status)) {
       return res.status(400).json({ error: `status must be one of ${EVENT_STATUSES.join(", ")}` });
     }
-    const newStart = startsAt !== undefined ? parseDate(startsAt, "startsAt") : undefined;
-    const newEnd = endsAt !== undefined ? parseDate(endsAt, "endsAt") : undefined;
+    const newStart = startsAt !== undefined ? parseDate(startsAt, "Start time") : undefined;
+    const newEnd = endsAt !== undefined ? parseDate(endsAt, "End time") : undefined;
 
     const updated = await withEventTransaction(async (tx) => {
       await lockEvent(tx, id);
@@ -172,7 +172,7 @@ router.patch(
       const start = newStart ?? event.startsAt;
       const end = newEnd ?? event.endsAt;
       if (start && end && end <= start) {
-        throw new HttpError(400, "endsAt must be after startsAt");
+        throw new HttpError(400, "The event must end after it starts");
       }
 
       // Lowering capacity never bumps a confirmed student back to the waitlist.
@@ -181,7 +181,7 @@ router.patch(
         if (capacity < confirmed) {
           throw new HttpError(
             409,
-            `capacity can't be lower than the ${confirmed} seats already confirmed`
+            `Capacity can't be lower than the ${confirmed} seats already confirmed`
           );
         }
       }

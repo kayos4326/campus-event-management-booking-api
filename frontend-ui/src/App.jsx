@@ -82,11 +82,29 @@ function App() {
 
   const [me, setMe] = useState(null)
   const [meError, setMeError] = useState(false)
-  const [tab, setTab] = useState('events')
+  // The tab lives in the URL (#bookings, #admin…) so refresh, Back/Forward and shared links
+  // keep your place — a reload used to always drop you back on Discover.
+  const [tab, setTab] = useState(() => window.location.hash.slice(1) || 'events')
 
+  useEffect(() => {
+    const onHashChange = () => setTab(window.location.hash.slice(1) || 'events')
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  const goTo = (key) => {
+    setTab(key)
+    if (window.location.hash !== `#${key}`) window.location.hash = key
+  }
+
+  // Keyed on the account's id rather than the account object: every page reloads its data
+  // when `api` changes, so a new-but-identical account object must not rebuild the client
+  // (found in e2e testing — it caused an endless refetch loop, ~20 requests a second).
+  const accountKey = account?.homeAccountId || account?.username || null
   const api = useMemo(
     () => (account ? createApiClient(instance, account) : null),
-    [instance, account],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [instance, accountKey],
   )
 
   const loadMe = useCallback(() => {
@@ -139,7 +157,7 @@ function App() {
                 <button
                   key={key}
                   aria-current={activeTab === key ? 'page' : undefined}
-                  onClick={() => setTab(key)}
+                  onClick={() => goTo(key)}
                 >
                   <Icon /> {label}
                 </button>
@@ -165,8 +183,8 @@ function App() {
       </header>
 
       <main className="page">
-        {activeTab === 'events' && <EventsBrowse api={api} role={me.role} onGoToBookings={() => setTab('bookings')} />}
-        {activeTab === 'bookings' && <MyBookings api={api} onBrowse={() => setTab('events')} />}
+        {activeTab === 'events' && <EventsBrowse api={api} role={me.role} onGoToBookings={() => goTo('bookings')} />}
+        {activeTab === 'bookings' && <MyBookings api={api} onBrowse={() => goTo('events')} />}
         {activeTab === 'organizer' && <OrganizerPanel api={api} />}
         {activeTab === 'admin' && <AdminPanel api={api} me={me} />}
       </main>

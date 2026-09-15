@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Ban, BadgeCheck, Building2, CalendarCheck, CalendarPlus, Clock, FilePen, Hourglass,
   MapPin, Megaphone, Pencil, Plus, Send, Users,
@@ -93,7 +93,7 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
           )}
           {!editing && (
             <span className="field-hint">
-              Not listed? <button type="button" className="btn btn-ghost btn-sm" style={{ height: 'auto', padding: 0, color: 'var(--accent-text)' }} onClick={onAddVenue}>Add a venue</button>
+              Not listed? <button type="button" className="btn btn-ghost btn-sm" style={{ height: 'auto', padding: 0, color: 'var(--accent-text)' }} onClick={() => onAddVenue((venue) => setForm((f) => ({ ...f, venueId: String(venue.id) })))}>Add a venue</button>
             </span>
           )}
         </div>
@@ -252,6 +252,7 @@ export default function OrganizerPanel({ api }) {
   const [attendeesFor, setAttendeesFor] = useState(null)
   const [toCancel, setToCancel] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const selectNewVenue = useRef(null)
 
   const loadVenues = useCallback(
     () => api.get('/venues').then((res) => setVenues(res.data)).catch(() => setError('Failed to load venues')),
@@ -355,7 +356,7 @@ export default function OrganizerPanel({ api }) {
           <p>Create events, keep an eye on bookings, and manage your venues.</p>
         </div>
         <div className="page-actions">
-          <button className="btn" onClick={() => setVenueOpen(true)}><Building2 /> Add venue</button>
+          <button className="btn" onClick={() => { selectNewVenue.current = null; setVenueOpen(true) }}><Building2 /> Add venue</button>
           <button className="btn btn-primary" onClick={openCreate}><Plus /> New event</button>
         </div>
       </div>
@@ -444,7 +445,7 @@ export default function OrganizerPanel({ api }) {
           <EmptyState
             icon={Building2}
             title="No venues yet"
-            action={<button className="btn" onClick={() => setVenueOpen(true)}><Plus /> Add a venue</button>}
+            action={<button className="btn" onClick={() => { selectNewVenue.current = null; setVenueOpen(true) }}><Plus /> Add a venue</button>}
           >
             Every event needs a venue. Add one with a real address.
           </EmptyState>
@@ -473,16 +474,19 @@ export default function OrganizerPanel({ api }) {
         venues={venues}
         onClose={() => { setFormMode(null); setEditing(null) }}
         onSubmit={submitEvent}
-        onAddVenue={() => setVenueOpen(true)}
+        onAddVenue={(selectVenue) => { selectNewVenue.current = selectVenue; setVenueOpen(true) }}
       />
 
       <VenueModal
         key={venueOpen ? 'venue-open' : 'venue-closed'}
         open={venueOpen}
         api={api}
-        onClose={() => setVenueOpen(false)}
+        onClose={() => { selectNewVenue.current = null; setVenueOpen(false) }}
         onCreated={(venue) => {
           setVenueOpen(false)
+          // Opened from inside "Create an event"? Pick the new venue there too.
+          selectNewVenue.current?.(venue)
+          selectNewVenue.current = null
           toast({ title: 'Venue added', body: `${venue.name} — address verified.` })
           loadVenues()
         }}

@@ -708,10 +708,10 @@ a { color: inherit; }
 }
 .code-block .c { color: #817e87; }
 .code-block .k { color: #ff9075; }
-.key-reveal { display: grid; gap: 12px; padding: 18px; border-radius: var(--radius-lg); border: 1px solid var(--warning); background: var(--warning-soft); }
+.key-reveal { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px; border-radius: var(--radius-lg); border: 1px solid var(--warning); background: var(--warning-soft); }
 .key-reveal p { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--warning); font-size: 14px; }
 .key-reveal p svg { width: 17px; height: 17px; }
-.key-row { display: flex; gap: 8px; }
+.key-row { display: flex; align-items: flex-start; gap: 8px; }
 .key-row code {
   flex: 1;
   min-width: 0;
@@ -721,8 +721,9 @@ a { color: inherit; }
   border: 1px solid var(--border);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
-  overflow-x: auto;
-  white-space: nowrap;
+  line-height: 1.5;
+  /* Wrap instead of scrolling so the whole one-time key is visible before copying. */
+  word-break: break-all;
 }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .stack-sm { display: grid; gap: 14px; }
@@ -768,7 +769,12 @@ a { color: inherit; }
 }
 
 @media (max-width: 440px) {
-  .stats { grid-template-columns: 1fr; }
+  .stats { gap: 10px; margin-bottom: 24px; }
+  .stat { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+  .stat .icon-tile { width: 30px; height: 30px; border-radius: 8px; }
+  .stat .icon-tile svg { width: 16px; height: 16px; }
+  .stat-value { font-size: 24px; }
+  .key-row { flex-direction: column; }
   .auth-copy h1 { font-size: 40px; }
 }
 

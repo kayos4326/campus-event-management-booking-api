@@ -105,6 +105,28 @@ describe("POST /events/api/admin/api-keys", () => {
   });
 });
 
+describe("GET /events/api/admin/api-keys", () => {
+  test("lists keys newest first without ever selecting the hash", async () => {
+    setUser({ id: 1, role: "ADMIN" });
+    prisma.apiKey.findMany.mockResolvedValue([{ id: 2, ownerLabel: "display", isActive: true }]);
+
+    const res = await request(app).get("/events/api/admin/api-keys");
+
+    expect(res.status).toBe(200);
+    const args = prisma.apiKey.findMany.mock.calls[0][0];
+    expect(args.select.keyHash).toBeUndefined();
+    expect(args.orderBy).toEqual({ createdAt: "desc" });
+  });
+
+  test("403 for a non-admin", async () => {
+    setUser({ id: 5, role: "ORGANIZER" });
+
+    const res = await request(app).get("/events/api/admin/api-keys");
+
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("DELETE /events/api/admin/api-keys/:id", () => {
   test("revokes (deactivates) rather than deleting the row", async () => {
     setUser({ id: 1, role: "ADMIN" });
@@ -113,9 +135,21 @@ describe("DELETE /events/api/admin/api-keys/:id", () => {
     const res = await request(app).delete("/events/api/admin/api-keys/1");
 
     expect(res.status).toBe(200);
-    expect(prisma.apiKey.update).toHaveBeenCalledWith({
+    expect(prisma.apiKey.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 1 },
       data: { isActive: false },
-    });
+    }));
+  });
+
+  // Found by the live-DB test run: the revoke response used to include keyHash.
+  test("never selects the key hash for the response", async () => {
+    setUser({ id: 1, role: "ADMIN" });
+    prisma.apiKey.update.mockResolvedValue({ id: 1, isActive: false });
+
+    await request(app).delete("/events/api/admin/api-keys/1");
+
+    const { select } = prisma.apiKey.update.mock.calls[0][0];
+    expect(select).toBeDefined();
+    expect(select.keyHash).toBeUndefined();
   });
 });

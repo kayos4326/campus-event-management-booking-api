@@ -69,6 +69,19 @@ router.get(
   })
 );
 
+// Every key ever issued (active and revoked) so an Admin can revoke one issued in an
+// earlier session — without this the UI could only revoke keys issued since page load.
+router.get(
+  "/api-keys",
+  asyncHandler(async (req, res) => {
+    const keys = await prisma.apiKey.findMany({
+      select: { id: true, ownerLabel: true, scope: true, isActive: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(keys);
+  })
+);
+
 // Issue an API key for the exposed room-status endpoint (not tied to a specific
 // consumer team — CLAUDE.md §5). The raw key is returned exactly once — only its hash
 // is persisted.
@@ -85,7 +98,14 @@ router.post(
       data: { ownerLabel, scope, keyHash: hashApiKey(rawKey) },
     });
 
-    res.status(201).json({ id: apiKey.id, ownerLabel, scope, key: rawKey });
+    res.status(201).json({
+      id: apiKey.id,
+      ownerLabel,
+      scope,
+      isActive: apiKey.isActive,
+      createdAt: apiKey.createdAt,
+      key: rawKey,
+    });
   })
 );
 
@@ -95,6 +115,8 @@ router.delete(
     const apiKey = await prisma.apiKey.update({
       where: { id: parseId(req.params.id) },
       data: { isActive: false },
+      // Never send the stored hash back out, even for a revoked key.
+      select: { id: true, ownerLabel: true, scope: true, isActive: true, createdAt: true },
     });
     res.json(apiKey);
   })

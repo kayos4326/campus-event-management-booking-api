@@ -3,3 +3,7 @@ node_modules/
 *.log
 .DS_Store
 coverage/
+tests/e2e/dist/
+tests/e2e/ui-shots/
+tests/e2e/chrome-profile*/
+tests/e2e/node_modules/

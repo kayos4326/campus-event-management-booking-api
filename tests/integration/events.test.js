@@ -82,7 +82,7 @@ describe("POST /events/api/events", () => {
       .send({ ...validEventBody, endsAt: "2026-12-01T08:00:00Z" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/endsAt must be after startsAt/);
+    expect(res.body.error).toMatch(/must end after it starts/);
     expect(prisma.event.create).not.toHaveBeenCalled();
   });
 
@@ -94,7 +94,7 @@ describe("POST /events/api/events", () => {
       .send({ ...validEventBody, startsAt: "next tuesday-ish" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/startsAt/);
+    expect(res.body.error).toMatch(/start time/i);
   });
 
   test("400 (not 500) when venueId doesn't match a venue", async () => {
@@ -236,11 +236,11 @@ describe("PATCH /events/api/events/:id validation and seat bookkeeping", () => {
   beforeEach(() => setUser({ id: 2, role: "ORGANIZER" }));
 
   test.each([
-    [{ capacity: 0 }, /capacity/],
-    [{ capacity: "abc" }, /capacity/],
-    [{ status: "LIVE" }, /status/],
-    [{ title: "" }, /title/],
-    [{ startsAt: "not a date" }, /startsAt/],
+    [{ capacity: 0 }, /capacity/i],
+    [{ capacity: "abc" }, /capacity/i],
+    [{ status: "LIVE" }, /status/i],
+    [{ title: "" }, /title/i],
+    [{ startsAt: "not a date" }, /start time/i],
   ])("400 for invalid input %p", async (body, message) => {
     const res = await request(app).patch("/events/api/events/1").send(body);
 

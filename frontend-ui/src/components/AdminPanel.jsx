@@ -98,20 +98,29 @@ function BookingsTable({ bookings }) {
 function ApiKeys({ api }) {
   const toast = useToast()
   const [form, setForm] = useState({ ownerLabel: '', scope: 'room-status:read' })
-  const [issued, setIssued] = useState([])
+  const [keys, setKeys] = useState(null)
+  const [revealed, setRevealed] = useState(null) // { id, key } — shown once, right after issuing
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
+  const [toRevoke, setToRevoke] = useState(null)
+  const [revoking, setRevoking] = useState(false)
 
-  const latest = issued[0]
+  useEffect(() => {
+    api.get('/admin/api-keys')
+      .then((res) => setKeys(res.data))
+      .catch((err) => { setKeys([]); setError(errorMessage(err, 'Failed to load API keys')) })
+  }, [api])
 
   const issue = async (e) => {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      const res = await api.post('/admin/api-keys', form)
-      setIssued([{ ...res.data, active: true }, ...issued])
+      const { data } = await api.post('/admin/api-keys', form)
+      const { key, ...stored } = data
+      setKeys((list) => [stored, ...(list || [])])
+      setRevealed({ id: data.id, key })
       setForm({ ownerLabel: '', scope: 'room-status:read' })
       setCopied(false)
     } catch (err) {
@@ -121,58 +130,66 @@ function ApiKeys({ api }) {
     }
   }
 
-  const revoke = async (key) => {
+  const confirmRevoke = async () => {
+    const target = toRevoke
+    setRevoking(true)
     try {
-      await api.delete(`/admin/api-keys/${key.id}`)
-      setIssued(issued.map((k) => (k.id === key.id ? { ...k, active: false, key: undefined } : k)))
-      toast({ title: 'Key revoked', body: `${key.ownerLabel} can no longer call the API.` })
+      await api.delete(`/admin/api-keys/${target.id}`)
+      setKeys((list) => list.map((k) => (k.id === target.id ? { ...k, isActive: false } : k)))
+      if (revealed?.id === target.id) setRevealed(null)
+      setToRevoke(null)
+      toast({ title: 'Key revoked', body: `${target.ownerLabel} can no longer call the API.` })
     } catch (err) {
       toast({ tone: 'danger', title: "Couldn't revoke the key", body: errorMessage(err, 'Please try again.') })
+    } finally {
+      setRevoking(false)
     }
   }
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(latest.key)
+      await navigator.clipboard.writeText(revealed.key)
       setCopied(true)
     } catch {
       toast({ tone: 'warning', title: 'Copy failed', body: 'Select the key and copy it manually.' })
     }
   }
 
+  const activeCount = (keys || []).filter((k) => k.isActive).length
+
   return (
-    <div className="split">
-      <div className="card card-pad">
-        <h3 className="card-title">Issue an API key</h3>
-        <p className="card-sub">Keys let other apps check whether an event is running in a room right now.</p>
-        {error && <Alert>{error}</Alert>}
-        <form className="stack-sm" onSubmit={issue}>
-          <label className="field">
-            <span className="field-label">Who is this key for?</span>
-            <input className="input" required placeholder="e.g. Library display screen" value={form.ownerLabel}
-              onChange={(e) => setForm({ ...form, ownerLabel: e.target.value })} />
-          </label>
-          <label className="field">
-            <span className="field-label">Scope</span>
-            <input className="input" required value={form.scope}
-              onChange={(e) => setForm({ ...form, scope: e.target.value })} />
-            <span className="field-hint">The room-status endpoint only accepts <code>room-status:read</code>.</span>
-          </label>
-          <div><button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : <KeyRound />} Issue key</button></div>
-        </form>
+    <>
+      <div className="split">
+        <div className="card card-pad">
+          <h3 className="card-title">Issue an API key</h3>
+          <p className="card-sub">Keys let other apps check whether an event is running in a room right now.</p>
+          {error && <Alert>{error}</Alert>}
+          <form className="stack-sm" onSubmit={issue}>
+            <label className="field">
+              <span className="field-label">Who is this key for?</span>
+              <input className="input" required placeholder="e.g. Library display screen" value={form.ownerLabel}
+                onChange={(e) => setForm({ ...form, ownerLabel: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field-label">Scope</span>
+              <input className="input" required value={form.scope}
+                onChange={(e) => setForm({ ...form, scope: e.target.value })} />
+              <span className="field-hint">The room-status endpoint only accepts <code>room-status:read</code>.</span>
+            </label>
+            <div><button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : <KeyRound />} Issue key</button></div>
+          </form>
 
-        {latest?.key && (
-          <div className="key-reveal" style={{ marginTop: 20 }}>
-            <p><TriangleAlert /> Copy this key now — it won't be shown again.</p>
-            <div className="key-row">
-              <code>{latest.key}</code>
-              <button type="button" className="btn btn-sm" onClick={copy}>{copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}</button>
+          {revealed && (
+            <div className="key-reveal" style={{ marginTop: 20 }}>
+              <p><TriangleAlert /> Copy this key now — it won't be shown again.</p>
+              <div className="key-row">
+                <code>{revealed.key}</code>
+                <button type="button" className="btn btn-sm" onClick={copy}>{copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}</button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      <div className="stack-sm">
         <div className="card card-pad">
           <h3 className="card-title">How it's called</h3>
           <p className="card-sub">Returns the event running in that room, or <code>{'{"active": false}'}</code>.</p>
@@ -182,18 +199,29 @@ function ApiKeys({ api }) {
             <span className="c">{'// → { "active": true, "eventId": 5, "title": "…" }'}</span>
           </code>
         </div>
+      </div>
 
-        {issued.length > 0 && (
+      <section className="section">
+        <div className="section-head">
+          <h2>All keys</h2>
+          <p>{activeCount} active · only a hash of each key is stored</p>
+        </div>
+        {keys === null ? (
+          <div className="skeleton skeleton-row" />
+        ) : keys.length === 0 ? (
+          <EmptyState icon={KeyRound} title="No keys issued yet">Issue a key above to let another app read room status.</EmptyState>
+        ) : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Issued this session</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Issued to</th><th>Created</th><th>Status</th><th /></tr></thead>
               <tbody>
-                {issued.map((k) => (
+                {keys.map((k) => (
                   <tr key={k.id}>
                     <td><strong>{k.ownerLabel}</strong><div className="muted" style={{ fontSize: 13 }}>{k.scope}</div></td>
-                    <td>{k.active ? <span className="pill pill-success">Active</span> : <span className="pill pill-neutral">Revoked</span>}</td>
+                    <td className="muted nowrap">{formatDate(k.createdAt)}</td>
+                    <td>{k.isActive ? <span className="pill pill-success">Active</span> : <span className="pill pill-neutral">Revoked</span>}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {k.active && <button className="btn btn-sm btn-danger" onClick={() => revoke(k)}>Revoke</button>}
+                      {k.isActive && <button className="btn btn-sm btn-danger" onClick={() => setToRevoke(k)}>Revoke</button>}
                     </td>
                   </tr>
                 ))}
@@ -201,8 +229,20 @@ function ApiKeys({ api }) {
             </table>
           </div>
         )}
-      </div>
-    </div>
+      </section>
+
+      <ConfirmDialog
+        open={!!toRevoke}
+        title="Revoke this key?"
+        confirmLabel="Revoke key"
+        danger
+        busy={revoking}
+        onConfirm={confirmRevoke}
+        onClose={() => setToRevoke(null)}
+      >
+        {toRevoke && `Anything using the key for "${toRevoke.ownerLabel}" will immediately get 401 errors. This can't be undone — you'd have to issue a new key.`}
+      </ConfirmDialog>
+    </>
   )
 }
 
