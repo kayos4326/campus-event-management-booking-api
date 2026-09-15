@@ -1,0 +1,61 @@
+const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+const dayYearFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short' })
+const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
+
+const sameDay = (a, b) => a.toDateString() === b.toDateString()
+
+export const formatDay = (value) => dayFmt.format(new Date(value))
+export const formatDate = (value) => dayYearFmt.format(new Date(value))
+export const formatTime = (value) => timeFmt.format(new Date(value))
+export const monthShort = (value) => monthFmt.format(new Date(value))
+export const weekdayShort = (value) => weekdayFmt.format(new Date(value))
+export const dayOfMonth = (value) => new Date(value).getDate()
+
+export function formatTimeRange(start, end) {
+  const s = new Date(start)
+  const e = new Date(end)
+  if (sameDay(s, e)) return `${formatDay(s)} · ${formatTime(s)} – ${formatTime(e)}`
+  return `${formatDay(s)}, ${formatTime(s)} – ${formatDay(e)}, ${formatTime(e)}`
+}
+
+export const isPast = (event) => new Date(event.endsAt) < new Date()
+
+// <input type="datetime-local"> wants local "YYYY-MM-DDTHH:mm", not an ISO string.
+export function toLocalInput(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// AU directory names come through as e.g. "THAR LIN HTET -" — tidy them for display.
+export function cleanName(name = '') {
+  const trimmed = name.replace(/[\s-]+$/, '').trim()
+  if (trimmed && trimmed === trimmed.toUpperCase()) {
+    return trimmed.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase())
+  }
+  return trimmed
+}
+
+export function initials(name = '') {
+  const parts = cleanName(name).split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?'
+}
+
+// Stable per-person avatar color.
+export function hueFor(text = '') {
+  let hash = 0
+  for (const ch of text) hash = (hash * 31 + ch.charCodeAt(0)) % 360
+  return hash
+}
+
+export const errorMessage = (err, fallback) => err?.response?.data?.error || fallback
+
+export function seatInfo(event) {
+  const confirmed = event.seats?.confirmed ?? 0
+  const waitlisted = event.seats?.waitlisted ?? 0
+  const left = Math.max(0, event.capacity - confirmed)
+  return { confirmed, waitlisted, left, full: left === 0, ratio: event.capacity ? confirmed / event.capacity : 0 }
+}

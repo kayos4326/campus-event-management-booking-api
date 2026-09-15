@@ -258,6 +258,15 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 
 **Bug found via real browser click-testing** (not just curl): changing your own role away from Admin in the Admin panel correctly updates the DB, but the panel's own subsequent data reload then fails (you're no longer authorized for `/admin/*`) — and since `AdminPanel.jsx`'s `loadAll()` had no `.catch()`, that failure was silent: the table just went stale with zero indication anything was wrong. Same missing-`.catch()` gap existed in `OrganizerPanel.jsx`'s venue/event loaders. Fixed: proper error messages on all of them. (Thar's role was manually restored to `ADMIN` afterward via direct DB update, since he'd locked himself out of the Admin panel testing this.)
 
+**UI redesign, 2026-09-15** (the first version was plain forms and lists — "so basic"):
+- Design system in `src/index.css`: CSS-variable tokens with automatic dark mode (`prefers-color-scheme`), Bricolage Grotesque headings + Inter body (Google Fonts, system-font fallback), ink-black primary buttons with one tangerine accent, semantic colors for booking statuses. Icons from `lucide-react` (the only new dependency). No CSS framework.
+- Shared components in `src/components/ui.jsx` (native `<dialog>` modal + confirm dialog, toasts, status/role pills, capacity bar, date badge, segmented control, empty states); formatting helpers in `src/lib/format.js` (also tidies AU directory names like `"THAR LIN HTET -"` → `"Thar Lin Htet"`).
+- Pages: split-screen sign-in; **Discover** (search, upcoming/all filter, event cards with the venue's Geoapify map, capacity bar, and the student's own booking state on each card); **My bookings** as ticket cards (upcoming/past/cancelled, one-click "Book again"); **My events** dashboard (stats, status filter, create/edit/publish/cancel dialogs, attendee list, venue gallery); **Admin** (stats, people/events/bookings tables, API-key issuing with copy + example request). All `window.confirm` calls replaced with in-app dialogs.
+- Features the old UI was missing: publishing a draft, editing an event, rebooking from My bookings.
+- Backend support: `GET /events` (both views) and `/admin/events` now include `seats: { confirmed, waitlisted }` (one `groupBy` query, `withSeatCounts` in `src/services/bookings.js`) and are sorted by date; `/bookings/mine` includes the venue.
+- Checked with headless-Chrome screenshots of every screen (mocked API + MSAL, preview files deleted afterward) at desktop width and at a true 390px phone width (via an iframe, since headless Chrome's minimum window is 500px) — no horizontal overflow on any screen.
+- ⚠️ The Geoapify key is embedded in `staticMapUrl` (pre-existing — it was already in the JSON), so it's visible to any logged-in user. Restricting the key to this domain in the Geoapify dashboard is worth doing.
+
 **Verified working end-to-end in a real browser**: login → redirect through Microsoft
 → back to the app → `/me` resolves the correct role → role-appropriate tabs render →
 Admin panel loads real (empty, post-cleanup) data correctly.

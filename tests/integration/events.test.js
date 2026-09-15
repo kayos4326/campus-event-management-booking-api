@@ -323,6 +323,26 @@ describe("GET /events/api/events", () => {
     );
   });
 
+  test("each event carries confirmed/waitlisted seat counts from one grouped query", async () => {
+    setUser({ id: 5, role: "STUDENT" });
+    prisma.event.findMany.mockResolvedValue([
+      { id: 1, capacity: 5 },
+      { id: 2, capacity: 3 },
+    ]);
+    prisma.booking.groupBy.mockResolvedValue([
+      { eventId: 1, status: "CONFIRMED", _count: { _all: 5 } },
+      { eventId: 1, status: "WAITLISTED", _count: { _all: 2 } },
+    ]);
+
+    const res = await request(app).get("/events/api/events");
+
+    expect(prisma.booking.groupBy).toHaveBeenCalledTimes(1);
+    expect(res.body).toEqual([
+      { id: 1, capacity: 5, seats: { confirmed: 5, waitlisted: 2 } },
+      { id: 2, capacity: 3, seats: { confirmed: 0, waitlisted: 0 } },
+    ]);
+  });
+
   // Added for the frontend's "My Events" panel (CLAUDE.md §9) — an Organizer needs to
   // see their own events including drafts, which the default PUBLISHED-only view hides.
   test("?mine=true returns the caller's own events regardless of status", async () => {

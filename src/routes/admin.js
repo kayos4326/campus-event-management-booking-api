@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const { hashApiKey } = require("../middleware/apiKey");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const { parseId } = require("../utils/http");
+const { withSeatCounts } = require("../services/bookings");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("ADMIN"));
@@ -43,15 +44,27 @@ router.patch(
 router.get(
   "/events",
   asyncHandler(async (req, res) => {
-    const events = await prisma.event.findMany({ include: { venue: true, organizer: true } });
-    res.json(events);
+    const events = await prisma.event.findMany({
+      include: {
+        venue: true,
+        organizer: { select: { id: true, displayName: true, email: true } },
+      },
+      orderBy: { startsAt: "desc" },
+    });
+    res.json(await withSeatCounts(events));
   })
 );
 
 router.get(
   "/bookings",
   asyncHandler(async (req, res) => {
-    const bookings = await prisma.booking.findMany({ include: { event: true, student: true } });
+    const bookings = await prisma.booking.findMany({
+      include: {
+        event: { select: { id: true, title: true, startsAt: true } },
+        student: { select: { id: true, displayName: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
     res.json(bookings);
   })
 );

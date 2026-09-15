@@ -25,6 +25,7 @@ jest.mock("../../src/services/prisma", () => ({
       findMany: jest.fn(),
       findUnique: jest.fn(),
       count: jest.fn(),
+      groupBy: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
@@ -65,6 +66,7 @@ function resetMocks() {
   // Seat-bookkeeping defaults: no confirmed seats and nobody waitlisted, unless a test says so.
   prisma.booking.count.mockResolvedValue(0);
   prisma.booking.findMany.mockResolvedValue([]);
+  prisma.booking.groupBy.mockResolvedValue([]);
   prisma.booking.updateMany.mockResolvedValue({ count: 0 });
   geocodeAddress.mockReset();
   preorderLanyards.mockClear();

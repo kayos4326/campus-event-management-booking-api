@@ -8,6 +8,7 @@ const {
   lockEvent,
   fillOpenSeats,
   cancelActiveBookings,
+  withSeatCounts,
 } = require("../services/bookings");
 const { HttpError, parseId } = require("../utils/http");
 
@@ -45,8 +46,9 @@ router.get(
     const events = await prisma.event.findMany({
       where,
       include: { venue: true },
+      orderBy: { startsAt: "asc" },
     });
-    res.json(events);
+    res.json(await withSeatCounts(events));
   })
 );
 

@@ -44,6 +44,26 @@ async function cancelActiveBookings(tx, eventId) {
   });
 }
 
+// Adds `seats: { confirmed, waitlisted }` to each event, in one grouped query, so the
+// frontend can show capacity bars without an extra request per event.
+async function withSeatCounts(events) {
+  if (events.length === 0) return events;
+
+  const groups = await prisma.booking.groupBy({
+    by: ["eventId", "status"],
+    where: { eventId: { in: events.map((e) => e.id) }, status: { in: ["CONFIRMED", "WAITLISTED"] } },
+    _count: { _all: true },
+  });
+
+  return events.map((event) => {
+    const seats = { confirmed: 0, waitlisted: 0 };
+    for (const group of groups) {
+      if (group.eventId === event.id) seats[group.status.toLowerCase()] = group._count._all;
+    }
+    return { ...event, seats };
+  });
+}
+
 function bookSeat(eventId, studentId) {
   return withEventTransaction(async (tx) => {
     await lockEvent(tx, eventId);
@@ -109,6 +129,7 @@ module.exports = {
   lockEvent,
   fillOpenSeats,
   cancelActiveBookings,
+  withSeatCounts,
   bookSeat,
   cancelBooking,
 };

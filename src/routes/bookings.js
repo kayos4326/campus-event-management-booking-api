@@ -41,7 +41,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: { studentId: req.user.id },
-      include: { event: true },
+      include: { event: { include: { venue: true } } },
+      orderBy: { createdAt: "desc" },
     });
     res.json(bookings);
   })

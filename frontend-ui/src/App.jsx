@@ -1,28 +1,78 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
+import { CalendarDays, Compass, Hourglass, LayoutDashboard, LogOut, MapPin, ShieldCheck, Ticket } from 'lucide-react'
 import { loginRequest } from './authConfig'
 import { createApiClient } from './api'
 import EventsBrowse from './components/EventsBrowse'
 import MyBookings from './components/MyBookings'
 import OrganizerPanel from './components/OrganizerPanel'
 import AdminPanel from './components/AdminPanel'
+import { Avatar, Brand, RolePill, Spinner, ToastProvider } from './components/ui'
+import { cleanName } from './lib/format'
 
+const TABS = {
+  events: { label: 'Discover', icon: Compass },
+  bookings: { label: 'My bookings', icon: Ticket },
+  organizer: { label: 'My events', icon: LayoutDashboard },
+  admin: { label: 'Admin', icon: ShieldCheck },
+}
+
+// Admins can do everything an Organizer can (the API allows it), and role priority
+// means anyone holding both app roles resolves to ADMIN — so they need My events too.
 const TABS_BY_ROLE = {
-  STUDENT: [
-    ['events', 'Events'],
-    ['bookings', 'My Bookings'],
-  ],
-  ORGANIZER: [
-    ['events', 'Events'],
-    ['organizer', 'My Events'],
-  ],
-  // Admins can do everything an Organizer can (the API allows it), and role priority
-  // means anyone holding both app roles resolves to ADMIN — so they need My Events too.
-  ADMIN: [
-    ['events', 'Events'],
-    ['organizer', 'My Events'],
-    ['admin', 'Admin'],
-  ],
+  STUDENT: ['events', 'bookings'],
+  ORGANIZER: ['events', 'organizer'],
+  ADMIN: ['events', 'organizer', 'admin'],
+}
+
+function SignIn({ onSignIn }) {
+  return (
+    <div className="auth">
+      <section className="auth-hero">
+        <Brand />
+        <div className="auth-copy">
+          <span className="eyebrow">For students &amp; campus organizers</span>
+          <h1>Every campus event, <em>one seat</em> away.</h1>
+          <p>Browse what's on, reserve a seat in one click, and get moved off the waitlist automatically when a spot opens up.</p>
+          <ul className="auth-features">
+            <li><span className="icon-tile"><Ticket /></span> Reserve seats in one click</li>
+            <li><span className="icon-tile"><Hourglass /></span> Automatic waitlist when an event fills up</li>
+            <li><span className="icon-tile"><MapPin /></span> Verified venues with maps</li>
+          </ul>
+        </div>
+        <div className="hero-ticket" aria-hidden="true">
+          <div className="ticket-stub">
+            <span>Seat</span>
+            <strong>A1</strong>
+            <small>Admit one</small>
+          </div>
+          <div className="hero-ticket-body">
+            <strong>Your seat is confirmed</strong>
+            <span><CalendarDays size={13} style={{ verticalAlign: '-2px' }} /> Shows up here the moment you book</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="auth-panel">
+        <div className="auth-card">
+          <h2>Sign in</h2>
+          <p>Use your university Microsoft account to continue.</p>
+          <button className="btn btn-microsoft btn-block" onClick={onSignIn}>
+            <span className="ms-logo" aria-hidden="true">
+              <i style={{ background: '#f25022' }} /><i style={{ background: '#7fba00' }} />
+              <i style={{ background: '#00a4ef' }} /><i style={{ background: '#ffb900' }} />
+            </span>
+            Sign in with Microsoft
+          </button>
+          <div className="role-legend">
+            <div><RolePill role="STUDENT" /> Browse events and reserve seats</div>
+            <div><RolePill role="ORGANIZER" /> Create venues and run events</div>
+            <div><RolePill role="ADMIN" /> Manage people, events and API keys</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
 }
 
 function App() {
@@ -31,6 +81,7 @@ function App() {
   const account = accounts[0]
 
   const [me, setMe] = useState(null)
+  const [meError, setMeError] = useState(false)
   const [tab, setTab] = useState('events')
 
   const api = useMemo(
@@ -38,56 +89,88 @@ function App() {
     [instance, account],
   )
 
-  useEffect(() => {
+  const loadMe = useCallback(() => {
     if (!api) return
-    api.get('/me').then((res) => setMe(res.data)).catch(() => setMe(null))
+    api.get('/me')
+      .then((res) => { setMe(res.data); setMeError(false) })
+      .catch(() => setMeError(true))
   }, [api])
 
+  useEffect(() => { loadMe() }, [loadMe])
+
   if (!isAuthenticated) {
+    return <SignIn onSignIn={() => instance.loginRedirect(loginRequest)} />
+  }
+
+  if (!me) {
     return (
-      <div className="centered">
-        <h1>Campus Event Booking</h1>
-        <p>Log in with your university Microsoft account to continue.</p>
-        <button onClick={() => instance.loginRedirect(loginRequest)}>Log in</button>
+      <div className="center-screen">
+        {meError ? (
+          <div className="stack">
+            <h2>We couldn't load your account</h2>
+            <p style={{ color: 'var(--text-2)' }}>Check your connection and try again.</p>
+            <div className="page-actions">
+              <button className="btn btn-primary" onClick={() => { setMeError(false); loadMe() }}>Try again</button>
+              <button className="btn" onClick={() => instance.logoutRedirect()}>Sign out</button>
+            </div>
+          </div>
+        ) : (
+          <div className="stack">
+            <Spinner className="loader" />
+            <p style={{ color: 'var(--text-2)' }}>Loading your account…</p>
+          </div>
+        )}
       </div>
     )
   }
 
-  if (!me) {
-    return <div className="centered">Loading your account…</div>
-  }
-
   const tabs = TABS_BY_ROLE[me.role] || TABS_BY_ROLE.STUDENT
+  const activeTab = tabs.includes(tab) ? tab : 'events'
 
   return (
-    <div className="app">
+    <ToastProvider>
       <header className="topbar">
-        <h1>Campus Event Booking</h1>
-        <div className="who">
-          {me.displayName} <span className="role-badge">{me.role}</span>
-          <button className="link" onClick={() => instance.logoutRedirect()}>Log out</button>
+        <div className="topbar-inner">
+          <Brand />
+          <nav className="nav" aria-label="Main">
+            {tabs.map((key) => {
+              const { label, icon: Icon } = TABS[key]
+              return (
+                <button
+                  key={key}
+                  aria-current={activeTab === key ? 'page' : undefined}
+                  onClick={() => setTab(key)}
+                >
+                  <Icon /> {label}
+                </button>
+              )
+            })}
+          </nav>
+          <div className="user-chip">
+            <div className="user-chip-text">
+              <strong>{cleanName(me.displayName)}</strong>
+              <span>{me.role[0] + me.role.slice(1).toLowerCase()}</span>
+            </div>
+            <Avatar name={me.displayName} />
+            <button
+              className="btn btn-ghost btn-icon"
+              onClick={() => instance.logoutRedirect()}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut />
+            </button>
+          </div>
         </div>
       </header>
 
-      <nav className="tabs">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            className={tab === key ? 'tab active' : 'tab'}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      <main className="content">
-        {tab === 'events' && <EventsBrowse api={api} role={me.role} />}
-        {tab === 'bookings' && me.role === 'STUDENT' && <MyBookings api={api} />}
-        {tab === 'organizer' && ['ORGANIZER', 'ADMIN'].includes(me.role) && <OrganizerPanel api={api} />}
-        {tab === 'admin' && me.role === 'ADMIN' && <AdminPanel api={api} me={me} />}
+      <main className="page">
+        {activeTab === 'events' && <EventsBrowse api={api} role={me.role} onGoToBookings={() => setTab('bookings')} />}
+        {activeTab === 'bookings' && <MyBookings api={api} onBrowse={() => setTab('events')} />}
+        {activeTab === 'organizer' && <OrganizerPanel api={api} />}
+        {activeTab === 'admin' && <AdminPanel api={api} me={me} />}
       </main>
-    </div>
+    </ToastProvider>
   )
 }
 
