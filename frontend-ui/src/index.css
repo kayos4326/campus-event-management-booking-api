@@ -220,6 +220,9 @@ a { color: inherit; }
 .search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--text-3); pointer-events: none; }
 .search .input { padding-left: 40px; border-radius: 999px; background: var(--surface); }
 
+.supply-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 720px) { .supply-fields { grid-template-columns: minmax(0, 1fr); } }
+
 /* Switch */
 .switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }

@@ -391,11 +391,53 @@ async function peerTests() {
   await api("e2e-admin", "DELETE", `/admin/api-keys/${wrongScope.data.id}`);
 }
 
-async function discordTest() {
-  section = "large conference → Discord";
-  const ev = await newEvent({ title: "[E2E] Large conference (automated test)", isLargeConference: true, capacity: 300 });
-  check("large-conference event created", ev.isLargeConference === true);
-  console.log(`  large-conference event #${ev.id} — preorder status checked in the DB inspection step`);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const supplyOf = async (eventId) => {
+  const mine = await api("e2e-org", "GET", "/events?mine=true");
+  return mine.data.find((e) => e.id === eventId)?.preorder || null;
+};
+
+async function supplyTests() {
+  section = "supply order → Discord";
+  const base = { title: "[E2E] Supply validation", capacity: 10, startsAt: at(60), endsAt: at(60, 12), venueId: VENUE_ID };
+  check("supply with no item → 400", (await api("e2e-org", "POST", "/events", { ...base, supply: { quantity: 10 } })).status === 400);
+  check("supply with a fractional amount → 400", (await api("e2e-org", "POST", "/events", { ...base, supply: { item: "Lanyards", quantity: 2.5 } })).status === 400);
+  check("supply with an absurd amount → 400", (await api("e2e-org", "POST", "/events", { ...base, supply: { item: "Lanyards", quantity: 500000 } })).status === 400);
+
+  // Ordering supplies for a draft would mean ordering for an event nobody can book yet.
+  const draft = await newEvent({
+    title: "[E2E] Draft with supplies", status: "DRAFT", capacity: 40,
+    supply: { item: "Blank lanyards", quantity: 12 },
+  });
+  let order = await supplyOf(draft.id);
+  check("a draft records the order as PENDING and sends nothing",
+    order?.status === "PENDING" && order.item === "Blank lanyards" && order.quantity === 12, order);
+
+  await api("e2e-org", "PATCH", `/events/${draft.id}`, { status: "PUBLISHED" });
+  await pause(2500);
+  order = await supplyOf(draft.id);
+  check("publishing the draft sends it to Discord (real message id stored)",
+    order?.status === "CONFIRMED" && /^[0-9]{10,}$/.test(order.peerOrderRef || ""), order);
+
+  const ref = order?.peerOrderRef;
+  await api("e2e-org", "PATCH", `/events/${draft.id}`, { status: "DRAFT" });
+  await api("e2e-org", "PATCH", `/events/${draft.id}`, { status: "PUBLISHED" });
+  await pause(2000);
+  order = await supplyOf(draft.id);
+  check("unpublishing and republishing doesn't order the supplies twice", order?.peerOrderRef === ref, order);
+
+  const published = await newEvent({
+    title: "[E2E] Published with supplies", capacity: 300, status: "PUBLISHED",
+    supply: { item: "Water bottles" },
+  });
+  await pause(2500);
+  order = await supplyOf(published.id);
+  check("publishing straight away orders one per seat when no amount is given",
+    order?.status === "CONFIRMED" && order.quantity === 300 && order.item === "Water bottles", order);
+
+  const none = await newEvent({ title: "[E2E] No supplies" });
+  check("an event without supplies has no order and isn't flagged",
+    (await supplyOf(none.id)) === null && none.isLargeConference === false);
 }
 
 const t0 = Date.now();
@@ -415,7 +457,7 @@ if (ONLY === "race") {
   await attendeeTests();
   await adminTests();
   await peerTests();
-  await discordTest();
+  await supplyTests();
 }
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

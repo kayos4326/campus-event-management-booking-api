@@ -225,12 +225,29 @@ await step('draft → publish', async () => {
   await setDateTime('Ends', inDays(5, 21))
   await selectOption('Venue', '[E2E] Test Hall')
   await typeInto('Capacity', 3)
+  check('the supply amount is locked until an item is named', await page.evaluate(() => {
+    const inputs = [...document.querySelectorAll('dialog[open] input')]
+    return inputs.find((i) => i.placeholder.startsWith('How many'))?.disabled
+  }))
+  await typeInto('Order supplies', 'Blank lanyards')
+  check('naming an item unlocks the amount, defaulting to one per seat', await page.evaluate(() => {
+    const qty = [...document.querySelectorAll('dialog[open] input')].find((i) => i.placeholder.startsWith('How many'))
+    return !qty.disabled && qty.placeholder.includes('3')
+  }))
+  await page.evaluate(() => {
+    const qty = [...document.querySelectorAll('dialog[open] input')].find((i) => i.placeholder.startsWith('How many'))
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(qty, '12')
+    qty.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await shot('event-supplies', false)
   await click('Save as draft')
   check('submit button switches to "Save draft"', await buttonExists('Save draft'))
   await click('Save draft')
   check('draft toast', await waitToast('Draft saved'))
   const c = await cardText(SOCIAL)
   check('draft row shows Draft pill + Publish button', c?.includes('Draft') && (await buttonExists('Publish', { card: SOCIAL })), c)
+  check('draft row shows the supply order, not yet sent', c?.includes('12 × Blank lanyards'), c)
   check('stats: 1 draft', (await stats()).Drafts === '1')
   await click('Drafts', { prefix: true })
   let titles = await page.evaluate(() => [...document.querySelectorAll('.manage-list article h3')].map((h) => h.textContent))
@@ -242,6 +259,12 @@ await step('draft → publish', async () => {
   await click('Publish', { card: SOCIAL })
   check('Publish button publishes the draft', await waitToast('Event published'))
   check('draft is now Published', (await cardText(SOCIAL))?.includes('Published'))
+  // The panel refreshes itself once the Discord post lands, without the organizer reloading.
+  check('publishing sends the supply order, and the row updates by itself', await page.waitForFunction((title) => {
+    const card = [...document.querySelectorAll('article')].find((a) => a.querySelector('h3')?.textContent.trim() === title)
+    const pill = [...(card?.querySelectorAll('.pill') || [])].find((p) => p.textContent.includes('Blank lanyards'))
+    return pill?.title === 'Requested in Discord'
+  }, { timeout: 15000 }, SOCIAL).then(() => true).catch(() => false))
   check('stats: 0 drafts, 2 upcoming', (await stats()).Drafts === '0' && (await stats())['Upcoming events'] === '2')
   await shot('organizer-two-events')
 })

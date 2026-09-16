@@ -26,9 +26,11 @@ A platform where university organizations create events and students book seats.
   RSVPs (or joins the waitlist once full), cancels their own bookings
 - **Admin**: manages users/roles, issues/revokes peer API keys, sees all events/bookings
 - Venue locations are set by dropping a pin on a map (Leaflet + OpenStreetMap); Geoapify turns that pin into an address and powers place search — see §9
-- A **large conference** event automatically triggers a Discord webhook notification
-  requesting 50 blank university lanyards be prepped (see §5 — originally this called a
-  classmate team's API; amended 2026-09-10 to a genuine public API instead)
+- An organizer can attach a **supply order** to an event (what to order, how many — e.g.
+  "200 × Blank lanyards"), which is posted to a Discord channel when the event is
+  published (see §5 — originally this called a classmate team's API for a fixed 50
+  lanyards; amended 2026-09-10 to a genuine public API, and made organizer-chosen
+  2026-09-16)
 
 ---
 
@@ -175,6 +177,15 @@ Every team must both expose an endpoint and consume a partner's endpoint.~~ **Dr
 - Auth: the webhook URL itself functions as the credential (anyone with it can post) — stored in Key Vault as `discord-webhook-url`. **Obtained and wired up 2026-09-10** (a new "CSX4110 Project" Discord server + channel, incoming webhook added). Verified end-to-end: created a throwaway large-conference test event directly against the deployed app, called `preorderLanyards()`, got back `status: "CONFIRMED"` with a real Discord message id as `peerOrderRef`, then cleaned up the test data.
 - Result recorded in the `MerchPreorder` table (`PENDING`→`CONFIRMED`/`FAILED`), `peerOrderRef` now holds the Discord message id instead of a Merch order ref
 
+**Supply orders became organizer-chosen, 2026-09-16.** The course brief says "pre-order 50
+blank university lanyards", so the first build hard-coded a `isLargeConference` switch →
+50 lanyards. Thar pushed back: an event might need t-shirts or water bottles, and 50 is
+arbitrary. Now:
+- The event form has an optional *item* + *how many* (amount defaults to one per seat), instead of a switch. `POST /events` takes `supply: { item, quantity }`; `MerchPreorder.item` was added (migration `20260916120000_supply_request_item`) and the fixed `quantity` default dropped.
+- `isLargeConference` is kept (it's in the proposal) but now simply records "this event has a supply order attached".
+- **Drafts don't order anything.** The request is stored `PENDING` at creation and sent to Discord when the event is published (`sendSupplyRequest`), because ordering supplies for an event nobody can book yet is wrong. Re-publishing doesn't re-order; a `FAILED` send is retried on the next publish. The organizer's list refreshes itself once the Discord post lands.
+- Verified live: 143/143 API (including draft → publish → real Discord message, and republish not double-ordering) and 142/142 UI.
+
 ### Expose: room-status check (generic, was: HelpDesk-specific)
 - Endpoint: `GET /events/api/peer/events/active?room=<number>` — `src/routes/peer.js` (path includes `/events` because Nginx's `/events` block forwards the full URI unchanged, same as the taught `/api` block — see §3)
 - Auth: `x-api-key` issued **by this app**, generated via `POST /events/api/admin/api-keys` (Admin-only) and stored **hashed** (SHA-256) in the `ApiKey` table — not a static env var / Key Vault secret
@@ -292,6 +303,12 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 - Migration `20260916010000_drop_static_map_url` drops `venues.static_map_url`; `src/services/geoapify.js` no longer builds static map URLs, so the API key is no longer exposed anywhere.
 - **Two bugs found by the live tests while building this** (both fixed): reverse geocoding a pin in the open sea returns `{ formatted: "Earth" }` rather than nothing, so "is this a real place?" now checks for a `country`; and it labels a pin with the *nearest landmark*, which put "Museum, …" on a campus pin 95 m away — that prefix is dropped when the landmark is more than 50 m from the pin.
 - Verified live: API suite **139/139** (including pin validation and the Thailand-biased search), UI suite **138/138** in Chrome (dropping a pin, searching, the venue-card map, directions links, and a check that the string "geoapify" appears nowhere in the page), live site **12/12**.
+
+**Shared-computer sign-in, 2026-09-16** (the teacher's concern: lab machines are shared, and
+one student must not end up using another's account):
+- MSAL cache stays `sessionStorage` **on purpose** — the session dies with the tab/browser. `localStorage` would share it across tabs and survive a browser restart; convenient, wrong here.
+- `loginRequest.prompt = "select_account"`, because Microsoft's own cookie would otherwise sign the next student straight in as the previous one. (`"login"` would force the password every time — not enabled, ask first.)
+- Idle sign-out: `src/lib/useIdleTimeout.js` + a warning dialog in `App.jsx`. 15 minutes of no activity → `logoutRedirect()`, which also ends the Microsoft session. Mouse/keyboard activity pushes the deadline back, but once the warning shows only "Stay signed in" does — a passing mouse shouldn't keep a session alive. `VITE_IDLE_MINUTES` shortens it for tests (`tests/e2e/idle-test.mjs`, 5/5 passing).
 
 **Verified working end-to-end in a real browser**: login → redirect through Microsoft
 → back to the app → `/me` resolves the correct role → role-appropriate tabs render →

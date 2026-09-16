@@ -65,7 +65,7 @@ async function main() {
       if (confirmed > ev.capacity) bad.push(`#${ev.id} over capacity ${confirmed}/${ev.capacity}`);
       if (ev.status === "PUBLISHED" && waitlisted > 0 && confirmed < ev.capacity) bad.push(`#${ev.id} waitlist with free seats ${confirmed}/${ev.capacity} +${waitlisted}`);
       if (ev.status === "CANCELLED" && confirmed + waitlisted > 0) bad.push(`#${ev.id} cancelled event still has active bookings`);
-      console.log(`#${ev.id} ${ev.status} cap=${ev.capacity} confirmed=${confirmed} waitlisted=${waitlisted} cancelled=${ev.bookings.length - confirmed - waitlisted} "${ev.title}"${ev.preorder ? ` preorder=${ev.preorder.status}:${ev.preorder.peerOrderRef}` : ""}`);
+      console.log(`#${ev.id} ${ev.status} cap=${ev.capacity} confirmed=${confirmed} waitlisted=${waitlisted} cancelled=${ev.bookings.length - confirmed - waitlisted} "${ev.title}"${ev.preorder ? ` supplies=${ev.preorder.quantity}x${ev.preorder.item}:${ev.preorder.status}:${ev.preorder.peerOrderRef}` : ""}`);
     }
     console.log(bad.length ? `INVARIANT VIOLATIONS:\n  ${bad.join("\n  ")}` : `invariants OK across ${events.length} events`);
   }

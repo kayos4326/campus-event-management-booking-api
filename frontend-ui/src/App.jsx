@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { CalendarDays, Compass, Hourglass, LayoutDashboard, LogOut, MapPin, ShieldCheck, Ticket } from 'lucide-react'
-import { loginRequest } from './authConfig'
+import { IDLE_MINUTES, IDLE_MS, IDLE_WARNING_MS, loginRequest } from './authConfig'
 import { createApiClient } from './api'
 import EventsBrowse from './components/EventsBrowse'
 import MyBookings from './components/MyBookings'
 import OrganizerPanel from './components/OrganizerPanel'
 import AdminPanel from './components/AdminPanel'
-import { Avatar, Brand, RolePill, Spinner, ToastProvider } from './components/ui'
+import { Avatar, Brand, Modal, RolePill, Spinner, ToastProvider } from './components/ui'
+import { useIdleTimeout } from './lib/useIdleTimeout'
 import { cleanName } from './lib/format'
 
 const TABS = {
@@ -64,6 +65,9 @@ function SignIn({ onSignIn }) {
             </span>
             Sign in with Microsoft
           </button>
+          <p className="fine-print">
+            On a shared computer you're signed out when you close the tab, and after {IDLE_MINUTES} minutes of inactivity.
+          </p>
           <div className="role-legend">
             <div><RolePill role="STUDENT" /> Browse events and reserve seats</div>
             <div><RolePill role="ORGANIZER" /> Create venues and run events</div>
@@ -82,6 +86,14 @@ function App() {
 
   const [me, setMe] = useState(null)
   const [meError, setMeError] = useState(false)
+
+  // Signs an abandoned tab out on a shared computer. logoutRedirect also ends the
+  // Microsoft session, so the next person can't click straight back in.
+  const { warningSeconds, stayActive } = useIdleTimeout({
+    idleMs: IDLE_MS,
+    warnMs: IDLE_WARNING_MS,
+    onIdle: () => { if (isAuthenticated) instance.logoutRedirect() },
+  })
   // The tab lives in the URL (#bookings, #admin…) so refresh, Back/Forward and shared links
   // keep your place — a reload used to always drop you back on Discover.
   const [tab, setTab] = useState(() => window.location.hash.slice(1) || 'events')
@@ -181,6 +193,23 @@ function App() {
           </div>
         </div>
       </header>
+
+      <Modal
+        open={warningSeconds !== null}
+        onClose={stayActive}
+        title="Still there?"
+        size="narrow"
+        footer={
+          <>
+            <button className="btn" onClick={() => instance.logoutRedirect()}>Sign out now</button>
+            <button className="btn btn-primary" onClick={stayActive}>Stay signed in</button>
+          </>
+        }
+      >
+        <p style={{ color: 'var(--text-2)' }}>
+          You'll be signed out in {warningSeconds} seconds so nobody else can use your account on this computer.
+        </p>
+      </Modal>
 
       <main className="page">
         {activeTab === 'events' && <EventsBrowse api={api} role={me.role} onGoToBookings={() => goTo('bookings')} />}

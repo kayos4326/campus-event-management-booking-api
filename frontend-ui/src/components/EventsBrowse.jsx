@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarX2, Clock, MapPin, Megaphone, Search } from 'lucide-react'
+import { CalendarX2, Clock, MapPin, Search } from 'lucide-react'
 import { Alert, CapacityBar, DateBadge, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
 import { directionsUrl } from './VenueMap'
 import { errorMessage, formatTimeRange, isPast, seatInfo } from '../lib/format'
@@ -30,7 +30,6 @@ function EventCard({ event, booking, role, busy, onBook }) {
         <div className="media-fallback" />
         <DateBadge date={event.startsAt} />
         <div className="media-chips">
-          {event.isLargeConference && <span className="pill no-dot"><Megaphone /> Large conference</span>}
           {ended && <span className="pill no-dot">Ended</span>}
         </div>
       </div>

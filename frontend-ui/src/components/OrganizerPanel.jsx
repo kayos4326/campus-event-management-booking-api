@@ -12,7 +12,7 @@ import { errorMessage, formatDate, formatTimeRange, isPast, toLocalInput } from 
 
 const emptyEvent = {
   title: '', description: '', capacity: 50, startsAt: '', endsAt: '',
-  venueId: '', isLargeConference: false, status: 'PUBLISHED',
+  venueId: '', supplyItem: '', supplyQuantity: '', status: 'PUBLISHED',
 }
 
 function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddVenue }) {
@@ -105,14 +105,19 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
         </label>
         {!editing && (
           <>
-            <label className="switch span-2">
-              <input type="checkbox" checked={form.isLargeConference} onChange={set('isLargeConference')} />
-              <span className="switch-track" />
-              <span className="switch-text">
-                <strong>Large conference</strong>
-                <span>Automatically posts a request for 50 lanyards to the team's Discord channel.</span>
+            <div className="field span-2">
+              <span className="field-label">Order supplies <span className="field-hint">(optional)</span></span>
+              <div className="supply-fields">
+                <input className="input" placeholder="What to order, e.g. Blank lanyards"
+                  value={form.supplyItem} onChange={set('supplyItem')} maxLength={100} />
+                <input className="input" type="number" min="1" step="1"
+                  placeholder={form.capacity ? `How many (default ${form.capacity})` : 'How many'}
+                  value={form.supplyQuantity} onChange={set('supplyQuantity')} disabled={!form.supplyItem.trim()} />
+              </div>
+              <span className="field-hint">
+                Posted to the team's Discord channel when the event is created. Leave the amount empty to order one per seat.
               </span>
-            </label>
+            </div>
             <div className="field span-2">
               <span className="field-label">Visibility</span>
               <div>
@@ -321,17 +326,29 @@ export default function OrganizerPanel({ api }) {
       })
       toast({ title: 'Event updated', body: form.title })
     } else {
+      const item = form.supplyItem.trim()
+      const quantity = form.supplyQuantity === '' ? undefined : Number(form.supplyQuantity)
       await api.post('/events', {
-        ...form,
+        title: form.title,
+        description: form.description,
+        status: form.status,
         capacity: Number(form.capacity),
         venueId: Number(form.venueId),
         startsAt: new Date(form.startsAt).toISOString(),
         endsAt: new Date(form.endsAt).toISOString(),
+        ...(item && { supply: { item, ...(quantity !== undefined && { quantity }) } }),
       })
       toast({
         title: form.status === 'PUBLISHED' ? 'Event published' : 'Draft saved',
-        body: form.isLargeConference ? 'Lanyard request sent to Discord.' : form.title,
+        body: item
+          ? form.status === 'PUBLISHED'
+            ? `${quantity ?? Number(form.capacity)} × ${item} requested in Discord.`
+            : `${quantity ?? Number(form.capacity)} × ${item} will be ordered when you publish.`
+          : form.title,
       })
+      // The Discord post finishes a moment after the event is created — refresh once more
+      // so the supply order's status stops saying "sending".
+      if (item && form.status === 'PUBLISHED') setTimeout(loadEvents, 3000)
     }
     setFormMode(null)
     setEditing(null)
@@ -344,6 +361,8 @@ export default function OrganizerPanel({ api }) {
       await api.patch(`/events/${event.id}`, { status: 'PUBLISHED' })
       toast({ title: 'Event published', body: `${event.title} is now visible to students.` })
       loadEvents()
+      // A pending supply order is sent to Discord on publish; show the result when it lands.
+      if (event.preorder && event.preorder.status !== 'CONFIRMED') setTimeout(loadEvents, 3000)
     } catch (err) {
       toast({ tone: 'danger', title: "Couldn't publish", body: errorMessage(err, 'Please try again.') })
     } finally {
@@ -428,7 +447,17 @@ export default function OrganizerPanel({ api }) {
                   <div className="manage-title">
                     <h3>{event.title}</h3>
                     {ended && !cancelled ? <StatusPill status="ENDED" /> : <StatusPill status={event.status} />}
-                    {event.isLargeConference && <span className="pill no-dot pill-accent"><Megaphone /> Large conference</span>}
+                    {event.preorder && (
+                      <span
+                        className={`pill no-dot ${event.preorder.status === 'FAILED' ? 'pill-danger' : event.preorder.status === 'PENDING' ? 'pill-neutral' : 'pill-accent'}`}
+                        title={event.preorder.status === 'FAILED'
+                          ? "Discord didn't accept this request"
+                          : event.preorder.status === 'PENDING' ? 'Sending to Discord…' : 'Requested in Discord'}
+                      >
+                        <Megaphone /> {event.preorder.quantity} × {event.preorder.item}
+                        {event.preorder.status === 'FAILED' && ' (not sent)'}
+                      </span>
+                    )}
                   </div>
                   <ul className="meta-list meta-inline">
                     <li><Clock /><span>{formatTimeRange(event.startsAt, event.endsAt)}</span></li>

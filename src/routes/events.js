@@ -1,7 +1,7 @@
 const express = require("express");
 const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
-const { preorderLanyards } = require("../services/merch");
+const { createSupplyRequest, sendSupplyRequest } = require("../services/merch");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const {
   withEventTransaction,
@@ -15,6 +15,27 @@ const { HttpError, parseId } = require("../utils/http");
 const router = express.Router();
 
 const EVENT_STATUSES = ["DRAFT", "PUBLISHED", "CANCELLED"];
+const MAX_SUPPLY_QUANTITY = 100000;
+
+// An optional supply order attached to an event: what to order and how many. Quantity
+// defaults to one per seat. Returns null when the organizer didn't ask for anything, or
+// an { error } for the route to return as a 400.
+function parseSupplyRequest(supply, capacity) {
+  if (supply === undefined || supply === null || supply === "") return { supply: null };
+
+  const item = typeof supply.item === "string" ? supply.item.trim() : "";
+  if (!item) return { error: "Say what to order (for example: Blank lanyards)" };
+  if (item.length > 100) return { error: "Keep the supply item under 100 characters" };
+
+  if (supply.quantity === undefined || supply.quantity === null || supply.quantity === "") {
+    return { supply: { item, quantity: capacity } };
+  }
+  const quantity = Number(supply.quantity);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_SUPPLY_QUANTITY) {
+    return { error: `How many? Use a whole number between 1 and ${MAX_SUPPLY_QUANTITY}` };
+  }
+  return { supply: { item, quantity } };
+}
 
 function isOwnerOrAdmin(req, event) {
   return req.user.role === "ADMIN" || event.organizerId === req.user.id;
@@ -45,7 +66,8 @@ router.get(
 
     const events = await prisma.event.findMany({
       where,
-      include: { venue: true },
+      // Organizers see the supply order they attached; the public browse view doesn't need it.
+      include: { venue: true, ...(req.query.mine === "true" && { preorder: true }) },
       orderBy: { startsAt: "asc" },
     });
     res.json(await withSeatCounts(events));
@@ -93,8 +115,7 @@ router.post(
   requireAuth,
   requireRole("ORGANIZER", "ADMIN"),
   asyncHandler(async (req, res) => {
-    const { title, description, startsAt, endsAt, capacity, venueId, isLargeConference, status } =
-      req.body;
+    const { title, description, startsAt, endsAt, capacity, venueId, supply, status } = req.body;
     // `!capacity` would wrongly reject a legitimate capacity of 0 as "missing" (0 is
     // falsy) — confirmed directly by testing. Checked explicitly instead.
     if (!title || !startsAt || !endsAt || venueId === undefined) {
@@ -111,6 +132,9 @@ router.post(
     if (status !== undefined && status !== "DRAFT" && status !== "PUBLISHED") {
       return res.status(400).json({ error: "status must be DRAFT or PUBLISHED" });
     }
+    const { supply: supplyRequest, error: supplyError } = parseSupplyRequest(supply, capacity);
+    if (supplyError) return res.status(400).json({ error: supplyError });
+
     const venue = Number.isInteger(Number(venueId))
       ? await prisma.venue.findUnique({ where: { id: Number(venueId) } })
       : null;
@@ -127,14 +151,17 @@ router.post(
         capacity,
         venueId: venue.id,
         organizerId: req.user.id,
-        isLargeConference: Boolean(isLargeConference),
+        // The flag now just records "this event has a supply order attached".
+        isLargeConference: Boolean(supplyRequest),
         status: status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
       },
     });
 
-    if (event.isLargeConference) {
-      // Best-effort — a failed notification shouldn't block event creation.
-      preorderLanyards(event).catch(() => {});
+    if (supplyRequest) {
+      await createSupplyRequest(event.id, supplyRequest);
+      // Ordered only once the event is live — see services/merch.js.
+      // Best-effort: a failed notification shouldn't block event creation.
+      if (event.status === "PUBLISHED") sendSupplyRequest(event).catch(() => {});
     }
 
     res.status(201).json(event);
@@ -197,6 +224,11 @@ router.patch(
           ...(status !== undefined && { status }),
         },
       });
+
+      // A draft's supply order is sent when it's published (services/merch.js).
+      if (result.status === "PUBLISHED" && event.status !== "PUBLISHED" && event.isLargeConference) {
+        sendSupplyRequest(result).catch(() => {});
+      }
 
       if (result.status === "CANCELLED" && event.status !== "CANCELLED") {
         await cancelActiveBookings(tx, event.id);

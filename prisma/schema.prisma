@@ -71,7 +71,7 @@ model Event {
   capacity          Int
   startsAt          DateTime    @map("starts_at")
   endsAt            DateTime    @map("ends_at")
-  isLargeConference Boolean     @default(false) @map("is_large_conference")
+  isLargeConference Boolean     @default(false) @map("is_large_conference") // true when the organizer attached a supply order
   status            EventStatus @default(DRAFT)
   createdAt         DateTime    @default(now()) @map("created_at")
 
@@ -99,10 +99,15 @@ model Booking {
   @@map("bookings")
 }
 
+// A supply order an organizer attaches to an event ("200 x Blank lanyards"). Kept the
+// model name from docs/proposal.md; the fulfilment channel is now a Discord webhook
+// rather than the Merch team's API (CLAUDE.md §5), and the item/quantity are chosen by
+// the organizer rather than a fixed 50 lanyards (2026-09-16).
 model MerchPreorder {
   id           Int            @id @default(autoincrement())
   eventId      Int            @unique @map("event_id") // 1:0..1 with Event
-  quantity     Int            @default(50)
+  item         String         @default("Blank lanyards")
+  quantity     Int
   peerOrderRef String?        @map("peer_order_ref") // Discord message id from the webhook post
   status       PreorderStatus @default(PENDING)
   createdAt    DateTime       @default(now()) @map("created_at")

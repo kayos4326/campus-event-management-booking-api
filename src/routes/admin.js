@@ -48,6 +48,7 @@ router.get(
       include: {
         venue: true,
         organizer: { select: { id: true, displayName: true, email: true } },
+        preorder: true,
       },
       orderBy: { startsAt: "desc" },
     });
