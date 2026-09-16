@@ -1,0 +1,42 @@
+# Runs the whole project on any machine with Docker: `docker compose up --build`,
+# then open http://localhost:3001/events/
+#
+# The database is a throwaway container, and the secrets that live in Azure Key Vault in
+# production are passed as environment variables here — a laptop has no managed identity
+# to authenticate with the vault.
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: localdev-root
+      MYSQL_DATABASE: campus_events
+      MYSQL_USER: campus_events_user
+      MYSQL_PASSWORD: localdev
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ucampus_events_user", "-plocaldev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - db-data:/var/lib/mysql
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      DATABASE_URL: mysql://campus_events_user:localdev@db:3306/campus_events
+      # Entra app registration (not secret — see .env.example)
+      TENANT_ID: c1f3dc23-b7f8-48d3-9b5d-2b12f158f01f
+      CLIENT_ID: f581260c-6bc3-4f8c-a711-ac2ca274f56b
+      # Optional: pass your own to exercise venue search and the Discord order locally.
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-local-dev-placeholder}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      ALLOWED_ORIGINS: http://localhost:3001
+    ports:
+      - "3001:3001"
+
+volumes:
+  db-data:

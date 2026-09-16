@@ -19,35 +19,58 @@ const { SecretClient } = require("@azure/keyvault-secrets");
 const REQUIRED_SECRETS = ["database-url", "geoapify-api-key"];
 const OPTIONAL_SECRETS = ["discord-webhook-url"];
 
+// Vault secret name → the env var the rest of the app reads.
+const ENV_VAR = {
+  "database-url": "DATABASE_URL",
+  "geoapify-api-key": "GEOAPIFY_API_KEY",
+  "discord-webhook-url": "DISCORD_WEBHOOK_URL",
+};
+
 async function loadSecrets() {
-  const vaultUrl = process.env.KEY_VAULT_URL;
-  if (!vaultUrl) {
-    throw new Error("KEY_VAULT_URL is not set — cannot bootstrap secrets");
-  }
-
-  const credential = new DefaultAzureCredential();
-  const client = new SecretClient(vaultUrl, credential);
-
   const secrets = {};
+  const wanted = [...REQUIRED_SECRETS, ...OPTIONAL_SECRETS];
 
-  for (const name of REQUIRED_SECRETS) {
-    const secret = await client.getSecret(name);
-    secrets[name] = secret.value;
+  // Already supplied by the environment? Use it and don't ask the vault. That's how
+  // `docker compose up` runs the whole stack on a laptop, where there's no managed
+  // identity to authenticate with. Production (the VM) sets none of these, so it still
+  // reads everything from Key Vault.
+  const missing = wanted.filter((name) => !process.env[ENV_VAR[name]]);
+  for (const name of wanted) {
+    if (!missing.includes(name)) secrets[name] = process.env[ENV_VAR[name]];
   }
 
-  for (const name of OPTIONAL_SECRETS) {
-    try {
-      const secret = await client.getSecret(name);
-      secrets[name] = secret.value;
-    } catch (err) {
-      console.warn(`⚠️  Optional secret "${name}" not found in Key Vault — skipping.`);
+  const missingRequired = REQUIRED_SECRETS.filter((name) => missing.includes(name));
+  if (missing.length > 0) {
+    const vaultUrl = process.env.KEY_VAULT_URL;
+    if (!vaultUrl) {
+      if (missingRequired.length > 0) {
+        throw new Error(
+          `KEY_VAULT_URL is not set and these secrets aren't in the environment either: ${missingRequired
+            .map((n) => ENV_VAR[n])
+            .join(", ")}`
+        );
+      }
+    } else {
+      const client = new SecretClient(vaultUrl, new DefaultAzureCredential());
+      for (const name of missing) {
+        try {
+          secrets[name] = (await client.getSecret(name)).value;
+        } catch (err) {
+          if (REQUIRED_SECRETS.includes(name)) throw err;
+          console.warn(`⚠️  Optional secret "${name}" not found in Key Vault — skipping.`);
+        }
+      }
     }
   }
 
-  // Map vault secret names to the env vars the rest of the app expects.
-  process.env.DATABASE_URL = secrets["database-url"];
-  process.env.GEOAPIFY_API_KEY = secrets["geoapify-api-key"];
-  if (secrets["discord-webhook-url"]) process.env.DISCORD_WEBHOOK_URL = secrets["discord-webhook-url"];
+  for (const [name, value] of Object.entries(secrets)) {
+    if (value) process.env[ENV_VAR[name]] = value;
+  }
+
+  const stillMissing = REQUIRED_SECRETS.filter((name) => !process.env[ENV_VAR[name]]);
+  if (stillMissing.length > 0) {
+    throw new Error(`Missing required secrets: ${stillMissing.join(", ")}`);
+  }
 
   return secrets;
 }

@@ -46,6 +46,7 @@ A platform where university organizations create events and students book seats.
 | Maps | **Leaflet + OpenStreetMap tiles** | Added 2026-09-16. Free, no API key, no billing account — organizers drop a pin, everyone else gets a real draggable map |
 | External API (consume) | Discord webhook | Replaced a classmate-team peer API per 2026-09-10 amendment — see §5 |
 | Exposed endpoint | REST, `x-api-key` header auth | Generic, not tied to a specific consumer team — see §5 |
+| Containers | `Dockerfile` + `docker-compose.yml` (app + MySQL) | Reworked and actually verified 2026-09-16 — see §3. Production still deploys natively (PM2 + Nginx), like the lab's `crud-api` |
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
 | Source control | GitHub | Automated deploy via script or Docker Compose |
 | Frontend | React + Vite, `@azure/msal-react` for real login | Added 2026-09-10, matches the lab's own frontend pattern — see §9 |
@@ -74,6 +75,19 @@ This app deploys **alongside existing infrastructure on the same VPS** — it do
     2. `src/config/keyvault.js`'s `loadSecrets()` used a single `Promise.all` over all secret names, so a missing *optional* secret made the **entire app** fail to boot, not just the features that need it. Fixed: required secrets throw if missing, optional ones are fetched independently and just log a warning + stay unset if missing.
     3. **Found 2026-09-10, more serious than it looked**: `src/server.js` required `./app` (which transitively requires `services/prisma.js`, constructing `new PrismaClient()`) *before* calling `loadSecrets()`. Confirmed directly by testing: Prisma reads and **caches** `DATABASE_URL` at construction time, not per-query — so a client built before the env var is set fails on every later query with "Environment variable not found: DATABASE_URL", even after the var gets set. This meant **every DB query in the deployed app was broken** the whole time, just never triggered because no request had gotten past auth into an actual query yet. Fixed by deferring `require("./app")` until after `await loadSecrets()` inside `bootstrapServer()` — matches the taught pattern (Week 9's lab constructs `PrismaClient` inside `bootstrapServer()`, after the secret fetch, not as a top-level import). Verified end-to-end afterward with a real Prisma query and the full `preorderLanyards` flow (see §5) — both succeeded.
 - ~~Unrelated pre-existing issue noticed during deploy: `/content` (WordPress) was returning 502~~ — **fixed 2026-09-09**. Root cause: WordPress runs via Apache + PHP (not Docker — no Docker is installed on this VM) from `/srv/www/wordpress`, listening on `:8080` per `/etc/apache2/ports.conf`. The VM rebooted at 07:12:59 UTC and `apache2.service` was not enabled for boot, so it stayed down. Fixed with `sudo systemctl enable --now apache2`; verified `/content` now returns 200 (after its normal redirect). MySQL (the WP DB) was unaffected throughout.
+
+### Docker, 2026-09-16 — works locally, not used in production
+
+The scaffold's `Dockerfile` (2026-09-09) was never revisited and **would have built a
+broken image**: it didn't build `frontend-ui`, so the container would have served the API
+with no UI. Rewritten and genuinely verified this time (`docker compose up --build` →
+migrations applied, app serving, frontend assets 200, CSP headers present, all 8 tables
+created; the whole stack was then torn down with `docker compose down -v`):
+- Three stages: build the React app → install deps + `prisma generate` → slim runtime (`node` user, no dev dependencies, 604MB).
+- `docker-compose.yml` runs the app **and** a throwaway MySQL, so the project runs on any machine with one command — useful for the demo and for a teammate who doesn't have the VM's access.
+- `npm install`, not `npm ci`: the lockfiles are generated on macOS and don't carry the Linux-only optional binaries these toolchains need (`npm ci` fails on `@emnapi/*`). Same command `deploy.sh` already uses on the VM.
+- **`loadSecrets()` now prefers secrets already in the environment** and only calls Key Vault for what's missing (`src/config/keyvault.js`, 5 unit tests). A laptop has no managed identity; production sets none of these vars, so the VM still reads everything from the vault.
+- **Production is unchanged**: PM2 + Nginx via `deploy.sh`. The VM has no Docker installed, and it also runs WordPress and the lab `crud-api`, so switching it to containers would risk a working deployment for no benefit.
 
 ---
 

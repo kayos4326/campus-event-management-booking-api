@@ -1,4 +1,13 @@
 node_modules
+frontend-ui/node_modules
+frontend-ui/dist
+tests/e2e/node_modules
+tests/e2e/dist
+tests/e2e/ui-shots
+tests/e2e/chrome-profile*
 .env
 .git
+.github
+coverage
+docs
 *.log
