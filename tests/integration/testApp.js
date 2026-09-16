@@ -44,12 +44,13 @@ jest.mock("../../src/services/merch", () => ({
 }));
 
 jest.mock("../../src/services/geoapify", () => ({
-  geocodeAddress: jest.fn(),
+  searchPlaces: jest.fn(),
+  describeLocation: jest.fn(),
 }));
 
 const { createApp } = require("../../src/app");
 const { prisma } = require("../../src/services/prisma");
-const { geocodeAddress } = require("../../src/services/geoapify");
+const { searchPlaces, describeLocation } = require("../../src/services/geoapify");
 const { preorderLanyards } = require("../../src/services/merch");
 
 function setUser(user) {
@@ -68,9 +69,10 @@ function resetMocks() {
   prisma.booking.findMany.mockResolvedValue([]);
   prisma.booking.groupBy.mockResolvedValue([]);
   prisma.booking.updateMany.mockResolvedValue({ count: 0 });
-  geocodeAddress.mockReset();
+  searchPlaces.mockReset();
+  describeLocation.mockReset();
   preorderLanyards.mockClear();
   mockCurrentUser = { id: 1, role: "STUDENT" };
 }
 
-module.exports = { createApp, prisma, geocodeAddress, preorderLanyards, setUser, resetMocks };
+module.exports = { createApp, prisma, searchPlaces, describeLocation, preorderLanyards, setUser, resetMocks };

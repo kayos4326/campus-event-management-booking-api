@@ -7,6 +7,7 @@ import {
   Alert, CapacityBar, ConfirmDialog, DateBadge, EmptyState, Modal, Person, Segmented,
   Spinner, StatCard, StatusPill, useToast,
 } from './ui'
+import VenueMap, { directionsUrl } from './VenueMap'
 import { errorMessage, formatDate, formatTimeRange, isPast, toLocalInput } from '../lib/format'
 
 const emptyEvent = {
@@ -135,15 +136,20 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
 
 function VenueModal({ open, onClose, onCreated, api }) {
   const [form, setForm] = useState({ name: '', roomNumber: '', addressRaw: '' })
+  const [pin, setPin] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const submit = async (e) => {
     e.preventDefault()
+    if (!pin) {
+      setError('Drop a pin on the map so students know where the venue is.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
-      const res = await api.post('/venues', form)
+      const res = await api.post('/venues', { ...form, latitude: pin.latitude, longitude: pin.longitude })
       onCreated(res.data)
     } catch (err) {
       setError(errorMessage(err, 'Creating the venue failed'))
@@ -158,13 +164,14 @@ function VenueModal({ open, onClose, onCreated, api }) {
     <Modal
       open={open}
       onClose={onClose}
+      size="wide"
       title="Add a venue"
-      description="We check the address is a real place and generate a map for it."
+      description="Drop a pin on the exact building — that's what students see on the map."
       footer={
         <>
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="submit" form="venue-form" className="btn btn-primary" disabled={busy}>
-            {busy && <Spinner />} {busy ? 'Verifying address…' : 'Add venue'}
+          <button type="submit" form="venue-form" className="btn btn-primary" disabled={busy || !pin}>
+            {busy && <Spinner />} {busy ? 'Saving…' : 'Add venue'}
           </button>
         </>
       }
@@ -179,9 +186,22 @@ function VenueModal({ open, onClose, onCreated, api }) {
           <span className="field-label">Room number <span className="field-hint">(optional)</span></span>
           <input className="input" value={form.roomNumber} onChange={set('roomNumber')} placeholder="e.g. 301" />
         </label>
+        <div className="field span-2">
+          <span className="field-label">Location <span className="field-hint">(required — click the map)</span></span>
+          <VenueMap
+            api={api}
+            value={pin}
+            onChange={(next) => {
+              setPin(next)
+              setError('')
+              // A place picked from search fills the address; a bare pin is described by the server.
+              if (next.formatted && !form.addressRaw.trim()) setForm((f) => ({ ...f, addressRaw: next.formatted }))
+            }}
+          />
+        </div>
         <label className="field span-2">
-          <span className="field-label">Address</span>
-          <input className="input" required value={form.addressRaw} onChange={set('addressRaw')} placeholder="Street, district, province" />
+          <span className="field-label">Address label <span className="field-hint">(optional)</span></span>
+          <input className="input" value={form.addressRaw} onChange={set('addressRaw')} placeholder="Filled in from the pin if you leave it empty" />
           <span className="field-hint">The room number is what the public room-status API looks up.</span>
         </label>
       </form>
@@ -453,12 +473,19 @@ export default function OrganizerPanel({ api }) {
           <div className="venue-grid">
             {venues.map((v) => (
               <div key={v.id} className="card venue-card">
-                <div className="event-media">
-                  {v.staticMapUrl ? <img src={v.staticMapUrl} alt={`Map of ${v.name}`} loading="lazy" /> : <div className="media-fallback" />}
-                </div>
+                {v.latitude != null ? (
+                  <VenueMap readOnly value={v} height={130} label={`Map showing ${v.name}`} />
+                ) : (
+                  <div className="event-media"><div className="media-fallback" /></div>
+                )}
                 <div className="venue-card-body">
                   <strong>{v.name}{v.isVerified && <BadgeCheck aria-label="Verified address" />}</strong>
                   <span>{v.roomNumber ? `Room ${v.roomNumber} · ` : ''}{v.addressRaw}</span>
+                  {directionsUrl(v) && (
+                    <a className="map-link" href={directionsUrl(v)} target="_blank" rel="noreferrer noopener">
+                      <MapPin /> Open in Google Maps
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

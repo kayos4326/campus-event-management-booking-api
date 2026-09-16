@@ -580,6 +580,34 @@ a { color: inherit; }
 .date-badge.muted { opacity: 0.6; }
 .date-badge.muted span { color: var(--text-3); }
 
+/* --------------------------------------------------------------------------- Maps (Leaflet) */
+.venue-map { width: 100%; border-radius: var(--radius); overflow: hidden; background: var(--surface-2); z-index: 0; }
+.venue-map.is-static { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.venue-map .leaflet-control-attribution { font-size: 10px; background: color-mix(in srgb, var(--surface) 82%, transparent); color: var(--text-3); }
+.venue-map .leaflet-control-attribution a { color: var(--text-2); }
+.map-pin { color: var(--accent); filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+/* OSM tiles are bright; take the edge off in dark mode so they don't glare. */
+@media (prefers-color-scheme: dark) {
+  .venue-map .leaflet-tile-pane { filter: brightness(0.82) saturate(0.85); }
+}
+.map-picker { display: grid; gap: 10px; }
+.map-search { display: flex; gap: 8px; align-items: center; }
+.map-search .search { max-width: none; }
+.map-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 176px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.map-results button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
+  border: 0; background: none; color: var(--text); font-size: 13px; text-align: left; cursor: pointer;
+}
+.map-results button:hover { background: var(--surface-2); }
+.map-results svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--accent); }
+.map-link {
+  flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent-text);
+  text-decoration: none; border-bottom: 1px solid currentColor; line-height: 1.2;
+}
+.map-link:hover { color: var(--text); }
+.venue-card-body .map-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; border-bottom: 0; }
+.venue-card-body .map-link svg { width: 13px; height: 13px; }
+
 .venue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .venue-card { overflow: hidden; }
 .venue-card .event-media { aspect-ratio: 16 / 7; }

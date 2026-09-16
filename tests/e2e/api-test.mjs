@@ -53,20 +53,36 @@ const cancel = (student, bookingId) => api(student, "PATCH", `/bookings/${bookin
 let VENUE_ID;
 const ROOM = "E2E-901";
 
+const CAMPUS = { latitude: 13.6138, longitude: 100.8338 }; // AU Suvarnabhumi
+
 async function setupVenue() {
   section = "venues";
   if (ONLY !== "race") {
-    check("student cannot create a venue (403)", (await api(S(1), "POST", "/venues", { name: "[E2E] x", addressRaw: "Bangkok" })).status === 403);
-    check("missing address → 400", (await api("e2e-org", "POST", "/venues", { name: "[E2E] x" })).status === 400);
-    const junk = await api("e2e-org", "POST", "/venues", { name: "[E2E] Nowhere", addressRaw: "qwxzv plorkt znnnq 99999 asdfgh" });
-    check("gibberish address rejected by real Geoapify (422)", junk.status === 422, junk);
+    check("student cannot create a venue (403)", (await api(S(1), "POST", "/venues", { name: "[E2E] x", ...CAMPUS })).status === 403);
+    const noPin = await api("e2e-org", "POST", "/venues", { name: "[E2E] No pin", addressRaw: "Assumption University" });
+    check("no pin → 400 (a typed address is no longer enough)", noPin.status === 400 && /pin/i.test(noPin.data.error), noPin);
+    const badPin = await api("e2e-org", "POST", "/venues", { name: "[E2E] Nowhere", latitude: 0, longitude: 0 });
+    check("pin in the middle of the ocean → 422", badPin.status === 422, badPin);
+    check("impossible coordinates → 400", (await api("e2e-org", "POST", "/venues", { name: "[E2E] x", latitude: 999, longitude: 0 })).status === 400);
+
+    // Regression test: unbiased, this search returned Assumption University in Massachusetts.
+    const search = await api("e2e-org", "GET", "/venues/geocode?q=assumption%20university");
+    const first = search.data?.[0];
+    check("place search finds the AU campus in Thailand, not the US one",
+      search.status === 200 && /Assumption University/i.test(first?.formatted) && Math.abs(first.latitude - 13.61) < 0.2 && Math.abs(first.longitude - 100.83) < 0.2, first);
+    check("short search query → 400", (await api("e2e-org", "GET", "/venues/geocode?q=au")).status === 400);
+    check("student cannot use place search (403)", (await api(S(1), "GET", "/venues/geocode?q=assumption")).status === 403);
   }
-  const real = await api("e2e-org", "POST", "/venues", {
-    name: "[E2E] Test Hall", roomNumber: ROOM, addressRaw: "Assumption University, Bang Na, Samut Prakan",
-  });
-  check("real address → 201, geocoded, verified, map URL", real.status === 201 && real.data.latitude && real.data.longitude && real.data.isVerified && /^https:\/\/maps\.geoapify\.com/.test(real.data.staticMapUrl), real);
+
+  const real = await api("e2e-org", "POST", "/venues", { name: "[E2E] Test Hall", roomNumber: ROOM, ...CAMPUS });
+  check("pinned venue → 201, coordinates stored, address filled in from the pin",
+    real.status === 201 && real.data.latitude === CAMPUS.latitude && real.data.longitude === CAMPUS.longitude &&
+    real.data.isVerified && typeof real.data.addressRaw === "string" && real.data.addressRaw.length > 3, real);
+  check("venue response no longer carries a Geoapify map URL (key not exposed)", !("staticMapUrl" in real.data), Object.keys(real.data));
   VENUE_ID = real.data.id;
   if (ONLY !== "race") {
+    const labelled = await api("e2e-org", "POST", "/venues", { name: "[E2E] Labelled Hall", addressRaw: "AU Grand Hall, Building D", ...CAMPUS });
+    check("organizer's own address label is kept", labelled.data.addressRaw === "AU Grand Hall, Building D", labelled.data);
     const list = await api(S(1), "GET", "/venues");
     check("GET /venues lists it", list.status === 200 && list.data.some((v) => v.id === VENUE_ID));
   }

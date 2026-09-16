@@ -25,7 +25,7 @@ A platform where university organizations create events and students book seats.
 - **Student flow**: logs in via university Microsoft account → browses published events,
   RSVPs (or joins the waitlist once full), cancels their own bookings
 - **Admin**: manages users/roles, issues/revokes peer API keys, sees all events/bookings
-- Venue address is validated and a static map is generated via Geoapify
+- Venue locations are set by dropping a pin on a map (Leaflet + OpenStreetMap); Geoapify turns that pin into an address and powers place search — see §9
 - A **large conference** event automatically triggers a Discord webhook notification
   requesting 50 blank university lanyards be prepped (see §5 — originally this called a
   classmate team's API; amended 2026-09-10 to a genuine public API instead)
@@ -40,7 +40,8 @@ A platform where university organizations create events and students book seats.
 | Database | Relational (MySQL/PostgreSQL) via **Prisma ORM** | Migrations required. **Pin `prisma@6` + `@prisma/client@6` explicitly** — v7 breaks the `new PrismaClient()` instantiation pattern used throughout the lab series |
 | Auth | JWT + RBAC, backed by **Microsoft Entra ID (AD)** via MSAL / OAuth2 / OIDC | Self-provisioned tenant (see §4) |
 | Secrets | **Azure Key Vault**, fetched at runtime | No `.env` secrets in production — `.env` only holds non-secret bootstrap config (tenant ID, client ID, vault URL) |
-| External API | **Geoapify** (venue address validation + static map links) | Switched from Mapbox → Geoapify for a zero-cost, no-card-required free tier |
+| External API | **Geoapify** (place search + turning a map pin into an address) | Switched from Mapbox → Geoapify for a zero-cost, no-card-required free tier. Reworked 2026-09-16 — see §9 |
+| Maps | **Leaflet + OpenStreetMap tiles** | Added 2026-09-16. Free, no API key, no billing account — organizers drop a pin, everyone else gets a real draggable map |
 | External API (consume) | Discord webhook | Replaced a classmate-team peer API per 2026-09-10 amendment — see §5 |
 | Exposed endpoint | REST, `x-api-key` header auth | Generic, not tied to a specific consumer team — see §5 |
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
@@ -280,7 +281,17 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 - Features the old UI was missing: publishing a draft, editing an event, rebooking from My bookings.
 - Backend support: `GET /events` (both views) and `/admin/events` now include `seats: { confirmed, waitlisted }` (one `groupBy` query, `withSeatCounts` in `src/services/bookings.js`) and are sorted by date; `/bookings/mine` includes the venue.
 - Checked with headless-Chrome screenshots of every screen (mocked API + MSAL, preview files deleted afterward) at desktop width and at a true 390px phone width (via an iframe, since headless Chrome's minimum window is 500px) — no horizontal overflow on any screen.
-- ⚠️ The Geoapify key is embedded in `staticMapUrl` (pre-existing — it was already in the JSON), so it's visible to any logged-in user. Restricting the key to this domain in the Geoapify dashboard is worth doing.
+- ~~⚠️ The Geoapify key is embedded in `staticMapUrl`, so it's visible to any logged-in user.~~ **Resolved 2026-09-16** — static map URLs are gone entirely (see below), so the key never reaches the browser.
+
+**Venue locations: pin on a map, 2026-09-16.** Thar reported the maps "not showing correctly" and being useless because nothing could be clicked. Both complaints were real, and the cause was geocoding, not the map image:
+- Typed addresses were geocoded blind. `"assumption university"` resolved to **Assumption University in Worcester, Massachusetts** (venue "Sala Thai" was pointing at the USA), and `"Assumption University, Bang Na, Samut Prakan"` matched no campus, so it fell back to the Samut Prakan province centroid ~30 km away ("AU Grand Hall"). Both rows were corrected in the DB to the real campus (13.6138, 100.8338).
+- **Google Maps was considered and rejected**: every Google Maps key requires a Google Cloud billing account with a card, which is the same reason Mapbox was dropped in the first place. Leaflet + OpenStreetMap needs neither.
+- **The pin is now required.** `POST /venues` takes `latitude`/`longitude` (validated ranges) instead of geocoding text; Geoapify *reverse* geocodes the pin into an address, which doubles as validation. Organizers can still type their own address label (e.g. "AU Grand Hall, Building D"); if they leave it empty the pin's address is stored.
+- New `GET /venues/geocode?q=` (Organizer/Admin) powers type-ahead in the picker — searches are filtered to `countrycode:th` and biased toward the campus, which is what fixes the Massachusetts result.
+- `frontend-ui/src/components/VenueMap.jsx` is both the picker (click/drag the pin, search to jump) and the read-only map on venue cards. Event cards and booking tickets now carry a "Directions" link that opens Google Maps at the venue's coordinates — no key needed for a plain maps link.
+- Migration `20260916010000_drop_static_map_url` drops `venues.static_map_url`; `src/services/geoapify.js` no longer builds static map URLs, so the API key is no longer exposed anywhere.
+- **Two bugs found by the live tests while building this** (both fixed): reverse geocoding a pin in the open sea returns `{ formatted: "Earth" }` rather than nothing, so "is this a real place?" now checks for a `country`; and it labels a pin with the *nearest landmark*, which put "Museum, …" on a campus pin 95 m away — that prefix is dropped when the landmark is more than 50 m from the pin.
+- Verified live: API suite **139/139** (including pin validation and the Thailand-biased search), UI suite **138/138** in Chrome (dropping a pin, searching, the venue-card map, directions links, and a check that the string "geoapify" appears nowhere in the page), live site **12/12**.
 
 **Verified working end-to-end in a real browser**: login → redirect through Microsoft
 → back to the app → `/me` resolves the correct role → role-appropriate tabs render →

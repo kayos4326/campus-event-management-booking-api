@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarX2, Clock, MapPin, Megaphone, Search } from 'lucide-react'
 import { Alert, CapacityBar, DateBadge, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
+import { directionsUrl } from './VenueMap'
 import { errorMessage, formatTimeRange, isPast, seatInfo } from '../lib/format'
 
 function EventCard({ event, booking, role, busy, onBook }) {
@@ -26,11 +27,7 @@ function EventCard({ event, booking, role, busy, onBook }) {
   return (
     <article className="event-card">
       <div className="event-media">
-        {venue?.staticMapUrl ? (
-          <img src={venue.staticMapUrl} alt={`Map of ${venue.name}`} loading="lazy" />
-        ) : (
-          <div className="media-fallback" />
-        )}
+        <div className="media-fallback" />
         <DateBadge date={event.startsAt} />
         <div className="media-chips">
           {event.isLargeConference && <span className="pill no-dot"><Megaphone /> Large conference</span>}
@@ -43,7 +40,14 @@ function EventCard({ event, booking, role, busy, onBook }) {
         <ul className="meta-list">
           <li><Clock /><span>{formatTimeRange(event.startsAt, event.endsAt)}</span></li>
           {venue && (
-            <li><MapPin /><span>{venue.name}{venue.roomNumber ? ` · Room ${venue.roomNumber}` : ''}</span></li>
+            <li>
+              <MapPin />
+              <span>{venue.name}{venue.roomNumber ? ` · Room ${venue.roomNumber}` : ''}</span>
+              {directionsUrl(venue) && (
+                <a className="map-link" href={directionsUrl(venue)} target="_blank" rel="noreferrer noopener"
+                  onClick={(e) => e.stopPropagation()}>Directions</a>
+              )}
+            </li>
           )}
         </ul>
         <CapacityBar event={event} />

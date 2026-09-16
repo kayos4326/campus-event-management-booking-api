@@ -53,9 +53,8 @@ model Venue {
   name         String
   roomNumber   String? @map("room_number") // e.g. "402" - used by the exposed room-status lookup
   addressRaw   String  @map("address_raw")
-  latitude     Float? // set after geocoding
+  latitude     Float? // set from the pin dropped on the map when the venue is created
   longitude    Float?
-  staticMapUrl String? @map("static_map_url") @db.Text // Prisma's default String is VARCHAR(191); the generated map URL is longer
   isVerified   Boolean @default(false) @map("is_verified")
 
   events Event[]

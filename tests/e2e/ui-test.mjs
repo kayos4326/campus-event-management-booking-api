@@ -131,6 +131,14 @@ const cardText = (title) => page.evaluate((title) => {
 const navLabels = () => page.evaluate(() => [...document.querySelectorAll('nav button')].map((b) => b.textContent.trim()))
 const overflowPx = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 const stats = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.stat')].map((s) => [s.querySelector('.stat-label').textContent, s.querySelector('.stat-value').textContent])))
+async function clickMap(offsetX = 0, offsetY = 0) {
+  const box = await (await page.$('.map-picker .venue-map')).boundingBox()
+  await page.mouse.click(box.x + box.width / 2 + offsetX, box.y + box.height / 2 + offsetY)
+  await sleep(250)
+}
+const pinnedText = () => page.evaluate(() => [...document.querySelectorAll('dialog[open] .field-hint')].map((h) => h.textContent).find((t) => t.includes('Pinned at') || t.includes('Click the map')))
+const hasPin = () => page.evaluate(() => !!document.querySelector('dialog[open] .map-pin'))
+
 const inDays = (d, h, m = 0) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(h, m, 0, 0); return x }
 async function apiCall(user, method, path, body, headers = {}) {
   const res = await fetch(API + path, {
@@ -267,7 +275,12 @@ await step('dialogs: Escape, backdrop, stacking', async () => {
   await click('Add a venue')
   await typeInto('Venue name', '[E2E] UI Venue')
   await typeInto('Room number', 'E2E-UI1')
-  await typeInto('Address', 'Assumption University Suvarnabhumi Campus, Samut Prakan')
+  check('map picker is shown with no pin yet', (await pinnedText())?.includes('Click the map') && !(await hasPin()))
+  check('"Add venue" is disabled until a pin is dropped', await page.evaluate(() => [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent.trim() === 'Add venue')?.disabled))
+  await clickMap()
+  check('clicking the map drops a pin', await hasPin())
+  check('the pin coordinates are shown', (await pinnedText())?.includes('Pinned at 13.6'), await pinnedText())
+  await shot('map-picker-pinned', false)
   await click('Add venue')
   check('venue added toast', await waitToast('Venue added'))
   check('back on the event form after adding the venue', JSON.stringify(await openDialogs()) === JSON.stringify(['Create an event']))
@@ -276,20 +289,34 @@ await step('dialogs: Escape, backdrop, stacking', async () => {
   await click('Cancel')
   check('Cancel closes the event form', (await openDialogs()).length === 0)
   check('new venue card appears in the gallery', await page.evaluate(() => [...document.querySelectorAll('.venue-card strong')].some((s) => s.textContent.includes('[E2E] UI Venue'))))
-  check('new venue card shows a real map image', await page.evaluate(() => {
+  check('new venue card shows a real map with the pin', await page.evaluate(() => {
     const card = [...document.querySelectorAll('.venue-card')].find((c) => c.innerText.includes('[E2E] UI Venue'))
-    const img = card?.querySelector('img')
-    return !!img && img.src.startsWith('https://maps.geoapify.com') && img.complete && img.naturalWidth > 0
+    return !!card?.querySelector('.venue-map .leaflet-tile') && !!card.querySelector('.map-pin')
   }))
+  check('venue card links out to Google Maps', await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.venue-card')].find((c) => c.innerText.includes('[E2E] UI Venue'))
+    const link = card?.querySelector('a.map-link')
+    return link?.href.startsWith('https://www.google.com/maps/search/?api=1&query=13.6')
+  }))
+  check('no Geoapify URL (and no API key) anywhere in the page', !(await page.content()).includes('geoapify'))
 })
 
 await step('add venue', async () => {
   await click('Add venue')
-  await typeInto('Venue name', '[E2E] UI Bad Venue')
-  await typeInto('Address', 'qwxzv plorkt znnnq 99999 asdfgh')
-  await click('Add venue')
-  check('bad address shows the API error inside the dialog', await hasText('Address does not resolve to a real place'))
-  await shot('venue-bad-address', false)
+  await typeInto('Venue name', '[E2E] UI Searched Venue')
+  await (await page.$('dialog[open] input[placeholder^="Search a place"]')).type('Assumption University Suvarnabhumi', { delay: 4 })
+  await click('Search')
+  await page.waitForSelector('.map-results button')
+  const results = await page.$$eval('.map-results button', (bs) => bs.map((b) => b.textContent.trim()))
+  check('searching finds the AU campus in Thailand (not the US one)', results.some((r) => /Assumption University/i.test(r) && /Thailand/i.test(r)), results)
+  await shot('venue-search-results', false)
+  await page.evaluate(() => document.querySelector('.map-results button').click())
+  await sleep(400)
+  check('choosing a result drops the pin there', await hasPin() && (await pinnedText())?.includes('Pinned at 13.6'), await pinnedText())
+  check('the address label is filled in from the chosen place', await page.evaluate(() => {
+    const input = [...document.querySelectorAll('dialog[open] input')].find((i) => i.placeholder.startsWith('Filled in from the pin'))
+    return /Assumption University/i.test(input?.value || '')
+  }))
   await click('Cancel')
   check('Cancel closes the venue dialog without saving', (await openDialogs()).length === 0)
 })
@@ -305,6 +332,10 @@ await step('s1 reserves the only seat', async () => {
   check('search narrows the list to the workshop', JSON.stringify(titles) === JSON.stringify([WORKSHOP]), titles)
   let c = await cardText(WORKSHOP)
   check('card shows venue, time, 0 / 1 booked', c?.includes('[E2E] Test Hall') && c?.includes('0 / 1 booked') && c?.includes('Reserve a seat'), c)
+  check('card offers directions to the venue', await page.evaluate((title) => {
+    const card = [...document.querySelectorAll('.event-card')].find((x) => x.querySelector('h3')?.textContent === title)
+    return card?.querySelector('a.map-link')?.href.includes('google.com/maps')
+  }, WORKSHOP))
   await shot('student-discover')
   await click('Reserve a seat', { card: WORKSHOP })
   check('"Seat reserved" toast', await waitToast('Seat reserved'))

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ban, Clock, Hourglass, MapPin, Ticket } from 'lucide-react'
 import { Alert, ConfirmDialog, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
+import { directionsUrl } from './VenueMap'
 import { dayOfMonth, errorMessage, formatTimeRange, isPast, monthShort, weekdayShort } from '../lib/format'
 
 function TicketCard({ booking, busy, onCancel, onRebook }) {
@@ -25,7 +26,13 @@ function TicketCard({ booking, busy, onCancel, onRebook }) {
         <ul className="meta-list meta-inline">
           <li><Clock /><span>{formatTimeRange(event.startsAt, event.endsAt)}</span></li>
           {event.venue && (
-            <li><MapPin /><span>{event.venue.name}{event.venue.roomNumber ? ` · Room ${event.venue.roomNumber}` : ''}</span></li>
+            <li>
+              <MapPin />
+              <span>{event.venue.name}{event.venue.roomNumber ? ` · Room ${event.venue.roomNumber}` : ''}</span>
+              {directionsUrl(event.venue) && (
+                <a className="map-link" href={directionsUrl(event.venue)} target="_blank" rel="noreferrer noopener">Directions</a>
+              )}
+            </li>
           )}
         </ul>
         {booking.status === 'WAITLISTED' && !ended && (
