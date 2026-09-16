@@ -46,7 +46,7 @@ const shot = async (name, fullPage = true) => {
 }
 async function signInAs(user) {
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
-  await page.evaluate((u) => { u ? localStorage.setItem('e2eUser', u) : localStorage.removeItem('e2eUser') }, user)
+  await page.evaluate((u) => { u ? sessionStorage.setItem('e2eUser', u) : sessionStorage.removeItem('e2eUser') }, user)
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
   // Wait for the app to finish its first render: sign-in page, account error, or the nav + page heading.
   await page.waitForFunction(() => {
@@ -175,7 +175,7 @@ await step('unknown account', async () => {
   check('"Try again" retries and stays on the error screen (still 401)', await hasText("We couldn't load your account"))
   await click('Sign out')
   check('"Sign out" returns to the sign-in page', await hasText('Sign in with Microsoft'))
-  check('…and clears the session', (await page.evaluate(() => localStorage.getItem('e2eUser'))) === null)
+  check('…and clears the session', (await page.evaluate(() => sessionStorage.getItem('e2eUser'))) === null)
 })
 
 section = 'organizer: create & manage'

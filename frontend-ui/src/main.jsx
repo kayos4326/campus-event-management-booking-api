@@ -5,10 +5,16 @@ import { MsalProvider } from '@azure/msal-react'
 import './index.css'
 import App from './App.jsx'
 import { msalConfig } from './authConfig.js'
+import { borrowSessionFromOpenTab, shareSessionWithNewTabs } from './lib/sessionHandoff.js'
 
 const msalInstance = new PublicClientApplication(msalConfig)
 
-msalInstance.initialize().then(() => {
+// A second tab borrows the session from an open one, so you don't sign in again — but
+// nothing is stored on disk, so closing every tab signs you out. See lib/sessionHandoff.js.
+borrowSessionFromOpenTab().then(() => {
+  shareSessionWithNewTabs()
+  return msalInstance.initialize()
+}).then(() => {
   const accounts = msalInstance.getAllAccounts()
   if (accounts.length > 0) {
     msalInstance.setActiveAccount(accounts[0])

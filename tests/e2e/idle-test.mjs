@@ -16,7 +16,7 @@ const browser = await puppeteer.launch({
 })
 const page = (await browser.pages())[0]
 await page.goto(APP, { waitUntil: 'domcontentloaded' })
-await page.evaluate(() => localStorage.setItem('e2eUser', 'e2e-s1'))
+await page.evaluate(() => sessionStorage.setItem('e2eUser', 'e2e-s1'))
 await page.goto(APP, { waitUntil: 'domcontentloaded' })
 await waitFor(page, 'Discover events')
 
@@ -27,7 +27,7 @@ check('"Stay signed in" dismisses the warning and keeps you in',
 
 check('the warning comes back when the tab stays idle', await waitFor(page, 'Still there?'))
 check('an abandoned tab signs itself out', await waitFor(page, 'Sign in with Microsoft'))
-check('…and the session is cleared', (await page.evaluate(() => localStorage.getItem('e2eUser'))) === null)
+check('…and the session is cleared', (await page.evaluate(() => sessionStorage.getItem('e2eUser'))) === null)
 
 await browser.close()
 console.log(`\n${results.filter(Boolean).length}/${results.length} idle checks passed`)
