@@ -42,8 +42,9 @@ model User {
   role        Role     @default(STUDENT)
   createdAt   DateTime @default(now()) @map("created_at")
 
-  eventsOrganized Event[]   @relation("Organizer")
+  eventsOrganized Event[]    @relation("Organizer")
   bookings        Booking[]
+  auditLogs       AuditLog[]
 
   @@map("users")
 }
@@ -56,6 +57,7 @@ model Venue {
   latitude     Float? // set from the pin dropped on the map when the venue is created
   longitude    Float?
   isVerified   Boolean @default(false) @map("is_verified")
+  isArchived   Boolean @default(false) @map("is_archived") // hidden from new events; kept on old ones
 
   events Event[]
 
@@ -115,6 +117,26 @@ model MerchPreorder {
   event Event @relation(fields: [eventId], references: [id])
 
   @@map("merch_preorders")
+}
+
+// Who did what, kept for the Admin activity view and each event's history.
+// Student bookings are deliberately not logged — they'd bury the organizer/admin actions
+// this is for, and a booking's own row already records who booked and when.
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    Int?     @map("actor_id") // null if the account is later removed
+  actorLabel String   @map("actor_label") // name/email as it was at the time
+  action     String // e.g. "event.cancelled", "user.role_changed"
+  entityType String   @map("entity_type") // "event" | "venue" | "user" | "apiKey"
+  entityId   Int?     @map("entity_id")
+  summary    String   @db.Text // one human-readable sentence
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 model ApiKey {

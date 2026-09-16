@@ -17,4 +17,13 @@ function parseId(value) {
   return id;
 }
 
-module.exports = { HttpError, parseId };
+// AU directory names arrive as "THAR LIN HTET -"; audit entries read better tidied up.
+function cleanNameOf(user) {
+  const raw = (user?.displayName || user?.email || "System").replace(/[\s-]+$/, "").trim();
+  if (raw && raw === raw.toUpperCase()) {
+    return raw.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+  }
+  return raw;
+}
+
+module.exports = { HttpError, parseId, cleanNameOf };

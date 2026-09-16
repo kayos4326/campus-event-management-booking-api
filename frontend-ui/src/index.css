@@ -615,6 +615,16 @@ a { color: inherit; }
 .venue-card { overflow: hidden; }
 .venue-card .event-media { aspect-ratio: 16 / 7; }
 .venue-card-body { padding: 14px 16px 16px; display: grid; gap: 4px; }
+.venue-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.venue-card-actions .btn-danger { --btn-border: transparent; }
+
+.timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.timeline li { position: relative; display: flex; gap: 12px; padding: 10px 0 10px 4px; }
+.timeline li:not(:last-child)::before { content: ''; position: absolute; left: 8px; top: 26px; bottom: -4px; width: 2px; background: var(--border); }
+.timeline-dot { flex-shrink: 0; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
+.timeline strong { display: block; font-weight: 600; font-size: 14px; }
+.timeline .meta { font-size: 12px; color: var(--text-3); }
+
 .venue-card-body strong { font-size: 15px; line-height: 1.35; }
 .venue-card-body strong svg { display: inline-block; width: 15px; height: 15px; margin-left: 6px; vertical-align: -2px; color: var(--success); }
 .venue-card-body span { font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

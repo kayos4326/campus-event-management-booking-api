@@ -25,8 +25,10 @@ mock everything instead. The last full run was on 2026-09-15; results are in `CL
 ```bash
 # 1. Copy the server-side scripts to the VM, create the test users, start the test server
 scp -i ~/.ssh/bad-vps-01_key.pem tests/e2e/{server.cjs,db.cjs,api-test.mjs} azureuser@chaotic-hell.eastasia.cloudapp.azure.com:/tmp/e2e/
+# RATE_LIMIT_* are raised because the suite makes far more writes in five minutes than a
+# person would — production keeps the real limits (see src/middleware/security.js).
 ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com \
-  'cd /tmp/e2e && export APP_DIR=$HOME/campus-event-api && node db.cjs setup && (PORT=3998 nohup node server.cjs > server.log 2>&1 &)'
+  'cd /tmp/e2e && export APP_DIR=$HOME/campus-event-api && node db.cjs setup && (PORT=3998 RATE_LIMIT_WRITES=100000 RATE_LIMIT_REQUESTS=100000 nohup node server.cjs > server.log 2>&1 &)'
 
 # 2. API + race tests, run on the VM itself so timing matches production
 ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com \

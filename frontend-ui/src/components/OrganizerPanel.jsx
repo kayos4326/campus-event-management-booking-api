@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Ban, BadgeCheck, Building2, CalendarCheck, CalendarPlus, Clock, FilePen, Hourglass,
-  MapPin, Megaphone, Pencil, Plus, Send, Users,
+  Ban, BadgeCheck, Building2, CalendarCheck, CalendarPlus, Clock, FilePen, History, Hourglass,
+  MapPin, Megaphone, Pencil, Plus, Send, Trash2, Users,
 } from 'lucide-react'
 import {
   Alert, CapacityBar, ConfirmDialog, DateBadge, EmptyState, Modal, Person, Segmented,
   Spinner, StatCard, StatusPill, useToast,
 } from './ui'
 import VenueMap, { directionsUrl } from './VenueMap'
-import { errorMessage, formatDate, formatTimeRange, isPast, toLocalInput } from '../lib/format'
+import { errorMessage, formatDate, formatTimeRange, isPast, timeAgo, toLocalInput } from '../lib/format'
 
 const emptyEvent = {
   title: '', description: '', capacity: 50, startsAt: '', endsAt: '',
@@ -214,6 +214,41 @@ function VenueModal({ open, onClose, onCreated, api }) {
   )
 }
 
+function HistoryModal({ event, api, onClose }) {
+  const [entries, setEntries] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!event) return
+    api.get(`/events/${event.id}/history`)
+      .then((res) => setEntries(res.data))
+      .catch((err) => { setEntries([]); setError(errorMessage(err, 'Failed to load the history')) })
+  }, [event, api])
+
+  return (
+    <Modal open={!!event} onClose={onClose} title="Event history" description={event?.title}>
+      {error && <Alert>{error}</Alert>}
+      {entries === null ? (
+        <div style={{ display: 'grid', placeItems: 'center', padding: 40 }}><Spinner className="loader" /></div>
+      ) : entries.length === 0 ? (
+        <EmptyState icon={History} title="Nothing recorded yet">Changes to this event will be listed here.</EmptyState>
+      ) : (
+        <ol className="timeline">
+          {entries.map((e) => (
+            <li key={e.id}>
+              <div className="timeline-dot" />
+              <div>
+                <strong>{e.summary}</strong>
+                <span className="meta">{e.actorLabel} · {timeAgo(e.createdAt)} · {formatDate(e.createdAt)}</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Modal>
+  )
+}
+
 function AttendeesModal({ event, api, onClose }) {
   const [bookings, setBookings] = useState(null)
   const [error, setError] = useState('')
@@ -275,6 +310,8 @@ export default function OrganizerPanel({ api }) {
   const [editing, setEditing] = useState(null)
   const [venueOpen, setVenueOpen] = useState(false)
   const [attendeesFor, setAttendeesFor] = useState(null)
+  const [historyFor, setHistoryFor] = useState(null)
+  const [venueToRemove, setVenueToRemove] = useState(null)
   const [toCancel, setToCancel] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const selectNewVenue = useRef(null)
@@ -387,6 +424,23 @@ export default function OrganizerPanel({ api }) {
 
   const openCreate = () => { setEditing(null); setFormMode('create') }
 
+  const removeVenue = async () => {
+    const venue = venueToRemove
+    setBusyId(`venue-${venue.id}`)
+    try {
+      const { data } = await api.delete(`/venues/${venue.id}`)
+      toast(data.outcome === 'deleted'
+        ? { title: 'Venue deleted', body: `${venue.name} wasn't used by any event.` }
+        : { tone: 'warning', title: 'Venue archived', body: `${venue.name} is used by ${data.eventCount} event(s), so it was hidden instead of deleted.` })
+      setVenueToRemove(null)
+      loadVenues()
+    } catch (err) {
+      toast({ tone: 'danger', title: "Couldn't remove the venue", body: errorMessage(err, 'Please try again.') })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <>
       <div className="page-header">
@@ -467,6 +521,7 @@ export default function OrganizerPanel({ api }) {
                 </div>
                 <div className="manage-actions">
                   <button className="btn btn-sm" onClick={() => setAttendeesFor(event)}><Users /> Attendees</button>
+                  <button className="btn btn-sm" onClick={() => setHistoryFor(event)}><History /> History</button>
                   {!cancelled && !ended && (
                     <button className="btn btn-sm" onClick={() => { setEditing(event); setFormMode('edit') }}><Pencil /> Edit</button>
                   )}
@@ -510,11 +565,16 @@ export default function OrganizerPanel({ api }) {
                 <div className="venue-card-body">
                   <strong>{v.name}{v.isVerified && <BadgeCheck aria-label="Verified address" />}</strong>
                   <span>{v.roomNumber ? `Room ${v.roomNumber} · ` : ''}{v.addressRaw}</span>
-                  {directionsUrl(v) && (
-                    <a className="map-link" href={directionsUrl(v)} target="_blank" rel="noreferrer noopener">
-                      <MapPin /> Open in Google Maps
-                    </a>
-                  )}
+                  <div className="venue-card-actions">
+                    {directionsUrl(v) && (
+                      <a className="map-link" href={directionsUrl(v)} target="_blank" rel="noreferrer noopener">
+                        <MapPin /> Open in Google Maps
+                      </a>
+                    )}
+                    <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setVenueToRemove(v)} aria-label={`Remove ${v.name}`}>
+                      <Trash2 /> Remove
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -549,6 +609,20 @@ export default function OrganizerPanel({ api }) {
       />
 
       <AttendeesModal key={attendeesFor?.id ?? 'none'} event={attendeesFor} api={api} onClose={() => setAttendeesFor(null)} />
+
+      <HistoryModal key={`history-${historyFor?.id ?? 'none'}`} event={historyFor} api={api} onClose={() => setHistoryFor(null)} />
+
+      <ConfirmDialog
+        open={!!venueToRemove}
+        title="Remove this venue?"
+        confirmLabel="Remove venue"
+        danger
+        busy={busyId === `venue-${venueToRemove?.id}`}
+        onConfirm={removeVenue}
+        onClose={() => setVenueToRemove(null)}
+      >
+        {venueToRemove && `If no event has used "${venueToRemove.name}" it's deleted for good. If events do use it, it's archived instead — hidden when creating new events, but still shown on the existing ones, so their history stays intact.`}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={!!toCancel}

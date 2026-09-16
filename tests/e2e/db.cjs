@@ -47,8 +47,12 @@ async function main() {
     const e = await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
     const v = await prisma.venue.deleteMany({ where: { name: { startsWith: "[E2E]" }, events: { none: {} } } });
     const k = await prisma.apiKey.deleteMany({ where: { ownerLabel: { startsWith: "[E2E]" } } });
+    // Audit rows would otherwise linger in the real Admin activity view.
+    const a = await prisma.auditLog.deleteMany({
+      where: { OR: [{ actorId: { in: userIds } }, { summary: { contains: "[E2E]" } }, { actorLabel: { startsWith: "E2E " } }] },
+    });
     const u = await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-    console.log(`deleted bookings=${b.count} preorders=${m.count} events=${e.count} venues=${v.count} apiKeys=${k.count} users=${u.count}`);
+    console.log(`deleted bookings=${b.count} preorders=${m.count} events=${e.count} venues=${v.count} apiKeys=${k.count} audit=${a.count} users=${u.count}`);
   }
 
   if (cmd === "inspect") {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Check, Copy, KeyRound, Ticket, TriangleAlert, UserCog, Users } from 'lucide-react'
+import { CalendarDays, Check, Copy, History, KeyRound, Ticket, TriangleAlert, UserCog, Users } from 'lucide-react'
 import {
   Alert, ConfirmDialog, EmptyState, Person, RolePill, Segmented, Spinner, StatCard, StatusPill, useToast,
 } from './ui'
-import { cleanName, errorMessage, formatDate, seatInfo } from '../lib/format'
+import { cleanName, errorMessage, formatDate, seatInfo, timeAgo } from '../lib/format'
 
 const ROLES = ['STUDENT', 'ORGANIZER', 'ADMIN']
 const title = (role) => role[0] + role.slice(1).toLowerCase()
@@ -87,6 +87,27 @@ function BookingsTable({ bookings }) {
               <td>{b.event?.title}</td>
               <td><StatusPill status={b.status} /></td>
               <td className="muted nowrap">{formatDate(b.createdAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function Activity({ entries }) {
+  if (entries === null) return <div className="skeleton skeleton-row" style={{ height: 200 }} />
+  if (entries.length === 0) return <EmptyState icon={History} title="No activity yet">Changes made by organizers and admins are recorded here.</EmptyState>
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead><tr><th>What happened</th><th>Who</th><th>When</th></tr></thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={e.id}>
+              <td><strong>{e.summary}</strong><div className="muted" style={{ fontSize: 13 }}>{e.action}</div></td>
+              <td className="nowrap">{e.actorLabel}</td>
+              <td className="muted nowrap" title={formatDate(e.createdAt)}>{timeAgo(e.createdAt)}</td>
             </tr>
           ))}
         </tbody>
@@ -251,6 +272,7 @@ export default function AdminPanel({ api, me }) {
   const [users, setUsers] = useState(null)
   const [events, setEvents] = useState([])
   const [bookings, setBookings] = useState([])
+  const [activity, setActivity] = useState(null)
   const [error, setError] = useState('')
   const [view, setView] = useState('users')
   const [roleChange, setRoleChange] = useState(null)
@@ -262,6 +284,7 @@ export default function AdminPanel({ api, me }) {
       .catch(() => { setUsers([]); setError('Failed to load admin data — if your role just changed, sign out and back in.') })
     api.get('/admin/events').then((res) => setEvents(res.data)).catch(() => {})
     api.get('/admin/bookings').then((res) => setBookings(res.data)).catch(() => {})
+    api.get('/admin/audit').then((res) => setActivity(res.data)).catch(() => setActivity([]))
   }, [api])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -315,6 +338,7 @@ export default function AdminPanel({ api, me }) {
             { value: 'users', label: 'People', count: users?.length ?? 0 },
             { value: 'events', label: 'Events', count: events.length },
             { value: 'bookings', label: 'Bookings', count: bookings.length },
+            { value: 'activity', label: 'Activity', count: activity?.length },
             { value: 'keys', label: 'API keys' },
           ]}
         />
@@ -327,6 +351,7 @@ export default function AdminPanel({ api, me }) {
           {view === 'users' && <UsersTable users={users} me={me} onChangeRole={(user, role) => setRoleChange({ user, role })} />}
           {view === 'events' && <EventsTable events={events} />}
           {view === 'bookings' && <BookingsTable bookings={bookings} />}
+          {view === 'activity' && <Activity entries={activity} />}
           {view === 'keys' && <ApiKeys api={api} />}
         </>
       )}

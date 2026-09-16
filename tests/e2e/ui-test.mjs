@@ -441,6 +441,14 @@ await step('attendees + capacity + cancel event', async () => {
   await click('', { ariaLabel: 'Close' })
   check('X button closes the dialog', (await openDialogs()).length === 0)
 
+  await click('History', { card: SOCIAL_RENAMED })
+  check('the event history dialog opens', (await openDialogs())[0] === 'Event history')
+  const historyRows = await page.evaluate(() => [...document.querySelectorAll('dialog[open] .timeline li')].map((li) => li.innerText.replace(/\s+/g, ' ')))
+  check('history shows what happened and who did it',
+    historyRows.some((r) => /Created "/.test(r)) && historyRows.some((r) => /published/i.test(r)) && historyRows.every((r) => r.includes('E2E Organizer Two')), historyRows)
+  await shot('event-history', false)
+  await click('', { ariaLabel: 'Close' })
+
   await click('Edit', { card: SOCIAL_RENAMED })
   await typeInto('Capacity', 2)
   await click('Save changes')
@@ -455,6 +463,21 @@ await step('attendees + capacity + cancel event', async () => {
   c = await cardText(WORKSHOP)
   check('row shows Cancelled with only Attendees left', c?.includes('Cancelled') && !(await buttonExists('Edit', { card: WORKSHOP })) && !(await buttonExists('Cancel', { card: WORKSHOP })) && (await buttonExists('Attendees', { card: WORKSHOP })), c)
   check('Cancelled filter count is 1', await page.evaluate(() => [...document.querySelectorAll('.segmented button')].find((b) => b.textContent.startsWith('Cancelled'))?.textContent === 'Cancelled1'))
+
+  // Venue removal: this one is used by events, so it must archive rather than delete.
+  await click('My events', { nav: true })
+  const removeBtn = (await page.evaluateHandle(() => {
+    const card = [...document.querySelectorAll('.venue-card')].find((v) => v.innerText.includes('[E2E] Test Hall'))
+    return [...(card?.querySelectorAll('button') || [])].find((b) => b.textContent.includes('Remove'))
+  })).asElement()
+  await removeBtn.click()
+  check('removing a venue explains what will happen', (await openDialogs())[0] === 'Remove this venue?' && await hasText('archived instead'))
+  await click('Remove venue')
+  check('a venue in use is archived, with a toast saying so', await waitToast('Venue archived'))
+  check('…and disappears from the venue list', await page.waitForFunction(() =>
+    ![...document.querySelectorAll('.venue-card')].some((v) => v.innerText.includes('[E2E] Test Hall')),
+    { timeout: 8000 }).then(() => true).catch(() => false))
+  check('…while the events that use it still show it', (await cardText(SOCIAL_RENAMED))?.includes('[E2E] Test Hall'))
 
   await signInAs('e2e-s2')
   await click('My bookings', { nav: true })
@@ -503,6 +526,12 @@ await step('admin panel', async () => {
   await click('Bookings', { prefix: true })
   check('Bookings tab lists student bookings', await page.evaluate(() => document.querySelectorAll('tbody tr').length > 0 && document.body.innerText.includes('E2E Student')))
   await shot('admin-bookings')
+
+  await click('Activity', { prefix: true })
+  const activityRows = await page.evaluate(() => [...document.querySelectorAll('tbody tr')].map((r) => r.innerText.replace(/\s+/g, ' ')))
+  check('the admin Activity tab lists recent changes with who and when',
+    activityRows.length > 0 && activityRows.some((r) => /Cancelled "/.test(r)) && activityRows.some((r) => /E2E Organizer Two/.test(r)), activityRows.slice(0, 3))
+  await shot('admin-activity')
 
   await click('API keys')
   await click('Issue key')

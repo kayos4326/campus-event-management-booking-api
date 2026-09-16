@@ -11,6 +11,7 @@ const {
   withSeatCounts,
 } = require("../services/bookings");
 const { HttpError, parseId } = require("../utils/http");
+const audit = require("../services/audit");
 
 const router = express.Router();
 
@@ -110,6 +111,27 @@ router.get(
   })
 );
 
+// Everything that happened to one event — who created, edited, published or cancelled it.
+router.get(
+  "/:id/history",
+  requireAuth,
+  requireRole("ORGANIZER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const event = await prisma.event.findUnique({ where: { id: parseId(req.params.id) } });
+    if (!event) return res.status(404).json({ error: "Event not found" });
+    if (!isOwnerOrAdmin(req, event)) {
+      return res.status(403).json({ error: "You can only view your own events" });
+    }
+
+    const history = await prisma.auditLog.findMany({
+      where: { entityType: "event", entityId: event.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    res.json(history);
+  })
+);
+
 router.post(
   "/",
   requireAuth,
@@ -157,8 +179,21 @@ router.post(
       },
     });
 
+    await audit.record(req.user, {
+      action: "event.created",
+      entityType: "event",
+      entityId: event.id,
+      summary: `Created "${event.title}" (${event.capacity} seats, ${String(event.status).toLowerCase()})`,
+    });
+
     if (supplyRequest) {
       await createSupplyRequest(event.id, supplyRequest);
+      await audit.record(req.user, {
+        action: "event.supplies_requested",
+        entityType: "event",
+        entityId: event.id,
+        summary: `Ordered ${supplyRequest.quantity} × ${supplyRequest.item} for "${event.title}"`,
+      });
       // Ordered only once the event is live — see services/merch.js.
       // Best-effort: a failed notification shouldn't block event creation.
       if (event.status === "PUBLISHED") sendSupplyRequest(event).catch(() => {});
@@ -236,9 +271,19 @@ router.patch(
         // Covers a capacity increase, and a draft being re-published with a waitlist.
         await fillOpenSeats(tx, result);
       }
-      return result;
+      return { result, before: event };
     });
-    res.json(updated);
+
+    const changes = audit.describeChanges(updated.before, req.body);
+    if (changes) {
+      await audit.record(req.user, {
+        action: updated.result.status === "CANCELLED" ? "event.cancelled" : "event.updated",
+        entityType: "event",
+        entityId: updated.result.id,
+        summary: `${updated.result.status === "CANCELLED" ? "Cancelled" : "Updated"} "${updated.result.title}": ${changes}`,
+      });
+    }
+    res.json(updated.result);
   })
 );
 
@@ -262,10 +307,18 @@ router.delete(
         data: { status: "CANCELLED" },
       });
       // A cancelled event has no seats to hold — its bookings are cancelled with it.
+      const active = await tx.booking.count({ where: { eventId: event.id, status: { in: ["CONFIRMED", "WAITLISTED"] } } });
       await cancelActiveBookings(tx, event.id);
-      return result;
+      return { result, active };
     });
-    res.json(cancelled);
+
+    await audit.record(req.user, {
+      action: "event.cancelled",
+      entityType: "event",
+      entityId: cancelled.result.id,
+      summary: `Cancelled "${cancelled.result.title}"${cancelled.active ? `, releasing ${cancelled.active} booking(s)` : ""}`,
+    });
+    res.json(cancelled.result);
   })
 );
 

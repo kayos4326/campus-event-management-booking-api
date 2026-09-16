@@ -132,7 +132,17 @@ key keeps the record. `src/middleware/security.js` closes the edges around that:
 - **Rate limiting** per signed-in user (hashed credential, falling back to IP): 1000 requests and 200 writes per 5 minutes by default (`RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WRITES`). One noisy account can't lock others out, and reads keep working when a writer is throttled.
 - `express.json({ limit: "100kb" })` and `trust proxy 1` (Nginx sets `X-Forwarded-For`).
 - Covered by `tests/integration/security.test.js` (7 tests) and verified on the live site: headers present, a foreign origin gets no CORS headers, our own origin does.
-- Still not done: no audit log of admin actions.
+- **Audit log added 2026-09-16** (was the last gap): `audit_logs` records who did what — event created/updated/cancelled, supplies ordered, venue added/archived/deleted, role changed, API key issued/revoked. Student bookings are deliberately *not* logged: they'd bury the organizer/admin actions this is for, and each booking row already records who booked and when. Written by `src/services/audit.js`, which swallows its own failures so a lost log line can never break the action it describes (covered by a test).
+  - `GET /events/api/admin/audit` (Admin) → the **Activity** tab in the Admin panel.
+  - `GET /events/api/events/:id/history` (owner or Admin) → the **History** button on each event, shown as a timeline ("capacity 5 → 8", "draft → published", who, when).
+
+### Deleting things, 2026-09-16
+
+Thar asked for a delete feature and what I'd recommend. The rule applied:
+- **Venues**: deleted for real only when no event has ever used them (a mistyped or test venue). If events reference the venue, deleting it would destroy their history, so it is **archived** instead — hidden from the venue picker, still shown on existing events, and `GET /venues?includeArchived=true` still lists it. Trying to delete an archived-but-used venue is a `409`.
+- **Events**: still cancel-only. Cancelling already frees the seats, tells students and keeps the record.
+- **Bookings**: never deleted — they're the evidence of who booked what.
+- The UI explains both outcomes before you confirm, and the toast says which one happened.
 
 ### Real end-to-end test with a real Entra token, 2026-09-10 — found several serious bugs
 

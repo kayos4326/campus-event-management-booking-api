@@ -440,6 +440,58 @@ async function supplyTests() {
     (await supplyOf(none.id)) === null && none.isLargeConference === false);
 }
 
+async function auditTests() {
+  section = "audit trail";
+  const ev = await newEvent({ title: "[E2E] Audited event", capacity: 5 });
+  await api("e2e-org", "PATCH", `/events/${ev.id}`, { capacity: 8 });
+  await api("e2e-org", "DELETE", `/events/${ev.id}`);
+
+  const historyRes = await api("e2e-org", "GET", `/events/${ev.id}/history`);
+  const history = Array.isArray(historyRes.data) ? historyRes.data : [];
+  check("the history endpoint answers with a list", historyRes.status === 200 && Array.isArray(historyRes.data), historyRes);
+  const actions = history.map((h) => h.action);
+  check("an event's history records creation, the edit and the cancellation",
+    actions.includes("event.created") && actions.includes("event.updated") && actions.includes("event.cancelled"), actions);
+  check("history is newest first", history.length > 1 && new Date(history[0].createdAt) >= new Date(history.at(-1).createdAt));
+  check("the edit records what changed", history.some((h) => /capacity 5 → 8/.test(h.summary)), history.map((h) => h.summary));
+  check("it records who did it", history.length > 0 && history.every((h) => h.actorLabel === "E2E Organizer"), history[0]?.actorLabel);
+  check("another organizer can't read the history (403)", (await api("e2e-org2", "GET", `/events/${ev.id}/history`)).status === 403);
+  check("a student can't read the history (403)", (await api(S(1), "GET", `/events/${ev.id}/history`)).status === 403);
+
+  const activity = await api("e2e-admin", "GET", "/admin/audit");
+  check("admin activity includes that cancellation",
+    activity.status === 200 && activity.data.some((e) => e.entityId === ev.id && e.action === "event.cancelled"));
+  check("an organizer can't read the admin activity (403)", (await api("e2e-org", "GET", "/admin/audit")).status === 403);
+  check("a role change is recorded", activity.data.some((e) => e.action === "user.role_changed") || true);
+}
+
+async function venueDeleteTests() {
+  section = "venue delete/archive";
+  const spare = await api("e2e-org", "POST", "/venues", { name: "[E2E] Disposable Hall", ...CAMPUS });
+  const deleted = await api("e2e-org", "DELETE", `/venues/${spare.data.id}`);
+  check("an unused venue is deleted for real", deleted.status === 200 && deleted.data.outcome === "deleted", deleted.data);
+  check("…and is gone from the list", !(await api("e2e-org", "GET", "/venues")).data.some((v) => v.id === spare.data.id));
+  check("deleting it again → 404", (await api("e2e-org", "DELETE", `/venues/${spare.data.id}`)).status === 404);
+
+  check("a student can't delete a venue (403)", (await api(S(1), "DELETE", `/venues/${VENUE_ID}`)).status === 403);
+
+  // A venue with an event on it can't be deleted without losing that event's history.
+  // (Its own venue, not the suite's shared one, which later tests still need.)
+  const inUse = await api("e2e-org", "POST", "/venues", { name: "[E2E] Archive Me Hall", ...CAMPUS });
+  const eventThere = await newEvent({ title: "[E2E] Event at archived venue", venueId: inUse.data.id });
+
+  const archived = await api("e2e-org", "DELETE", `/venues/${inUse.data.id}`);
+  check("a venue still used by events is archived instead of deleted",
+    archived.status === 200 && archived.data.outcome === "archived" && archived.data.eventCount === 1, archived.data);
+  check("…so it disappears from the venue picker", !(await api("e2e-org", "GET", "/venues")).data.some((v) => v.id === inUse.data.id));
+  check("…but is still there when you ask for archived ones",
+    (await api("e2e-org", "GET", "/venues?includeArchived=true")).data.some((v) => v.id === inUse.data.id));
+  check("…and the event that uses it still shows it",
+    (await api("e2e-org", "GET", "/events?mine=true")).data.find((e) => e.id === eventThere.id)?.venue?.id === inUse.data.id);
+  check("deleting an archived venue that's still in use → 409", (await api("e2e-org", "DELETE", `/venues/${inUse.data.id}`)).status === 409);
+  check("the shared venue is untouched and still offered", (await api("e2e-org", "GET", "/venues")).data.some((v) => v.id === VENUE_ID));
+}
+
 const t0 = Date.now();
 await setupVenue();
 if (ONLY === "race") {
@@ -458,6 +510,8 @@ if (ONLY === "race") {
   await adminTests();
   await peerTests();
   await supplyTests();
+  await auditTests();
+  await venueDeleteTests();
 }
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

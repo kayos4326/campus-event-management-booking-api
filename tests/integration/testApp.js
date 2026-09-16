@@ -19,7 +19,7 @@ jest.mock("../../src/middleware/auth", () => {
 
 jest.mock("../../src/services/prisma", () => ({
   prisma: {
-    venue: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    venue: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     event: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
     booking: {
       findMany: jest.fn(),
@@ -30,7 +30,8 @@ jest.mock("../../src/services/prisma", () => ({
       update: jest.fn(),
       updateMany: jest.fn(),
     },
-    user: { findMany: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    user: { findMany: jest.fn(), findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    auditLog: { create: jest.fn(), findMany: jest.fn() },
     apiKey: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     merchPreorder: { create: jest.fn(), update: jest.fn() },
     // Interactive transactions just run the callback against this same mock client.

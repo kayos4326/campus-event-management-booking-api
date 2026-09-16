@@ -51,6 +51,18 @@ export function hueFor(text = '') {
   return hash
 }
 
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const STEPS = [['second', 60], ['minute', 60], ['hour', 24], ['day', 7], ['week', 4.35], ['month', 12], ['year', Infinity]]
+
+export function timeAgo(value) {
+  let amount = (new Date(value) - Date.now()) / 1000
+  for (const [unit, size] of STEPS) {
+    if (Math.abs(amount) < size) return relative.format(Math.round(amount), unit)
+    amount /= size
+  }
+  return formatDate(value)
+}
+
 export const errorMessage = (err, fallback) => err?.response?.data?.error || fallback
 
 export function seatInfo(event) {

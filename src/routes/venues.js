@@ -3,6 +3,8 @@ const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { searchPlaces, describeLocation } = require("../services/geoapify");
 const { asyncHandler } = require("../middleware/asyncHandler");
+const { parseId } = require("../utils/http");
+const audit = require("../services/audit");
 
 const router = express.Router();
 
@@ -10,7 +12,11 @@ router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const venues = await prisma.venue.findMany({ orderBy: { name: "asc" } });
+    // Archived venues stay on the events that already use them, but aren't offered again.
+    const venues = await prisma.venue.findMany({
+      where: req.query.includeArchived === "true" ? {} : { isArchived: false },
+      orderBy: { name: "asc" },
+    });
     res.json(venues);
   })
 );
@@ -67,7 +73,49 @@ router.post(
         isVerified: true,
       },
     });
+    await audit.record(req.user, {
+      action: "venue.created",
+      entityType: "venue",
+      entityId: venue.id,
+      summary: `Added venue "${venue.name}"${venue.roomNumber ? ` (room ${venue.roomNumber})` : ""}`,
+    });
     res.status(201).json(venue);
+  })
+);
+
+// Deleting a venue that events already point at would destroy their history, so that case
+// archives instead: hidden when creating new events, still shown on the old ones.
+router.delete(
+  "/:id",
+  requireAuth,
+  requireRole("ORGANIZER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const id = parseId(req.params.id);
+    const venue = await prisma.venue.findUnique({ where: { id }, include: { _count: { select: { events: true } } } });
+    if (!venue) return res.status(404).json({ error: "Venue not found" });
+
+    if (venue._count.events > 0) {
+      if (venue.isArchived) {
+        return res.status(409).json({ error: "This venue is already archived, and it can't be deleted while events still use it" });
+      }
+      const archived = await prisma.venue.update({ where: { id }, data: { isArchived: true } });
+      await audit.record(req.user, {
+        action: "venue.archived",
+        entityType: "venue",
+        entityId: id,
+        summary: `Archived venue "${venue.name}" (still used by ${venue._count.events} event(s))`,
+      });
+      return res.json({ ...archived, outcome: "archived", eventCount: venue._count.events });
+    }
+
+    await prisma.venue.delete({ where: { id } });
+    await audit.record(req.user, {
+      action: "venue.deleted",
+      entityType: "venue",
+      entityId: id,
+      summary: `Deleted unused venue "${venue.name}"`,
+    });
+    res.json({ id, outcome: "deleted" });
   })
 );
 
