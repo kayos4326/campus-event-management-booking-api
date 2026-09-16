@@ -1,6 +1,6 @@
 const express = require("express");
-const cors = require("cors");
 const path = require("path");
+const { corsPolicy, securityHeaders, readLimiter, writeLimiter } = require("./middleware/security");
 
 const venuesRouter = require("./routes/venues");
 const eventsRouter = require("./routes/events");
@@ -12,10 +12,16 @@ const { HttpError } = require("./utils/http");
 
 function createApp() {
   const app = express();
-  app.use(cors()); // allows the frontend-ui dev server (localhost:5173) to call this API
-  app.use(express.json());
+  // Nginx sits in front (see CLAUDE.md §3), so trust its X-Forwarded-For for client IPs.
+  app.set("trust proxy", 1);
+  app.use(securityHeaders);
+  app.use(corsPolicy); // only our own frontend may call the API from a browser
+  app.use(express.json({ limit: "100kb" }));
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+  // Abuse protection on the API only — the frontend's own files aren't rate limited.
+  app.use("/events/api", readLimiter(), writeLimiter());
 
   // Mounted under /events: Nginx's `location /events { proxy_pass
   // http://127.0.0.1:3001; }` forwards the full request URI unchanged (same

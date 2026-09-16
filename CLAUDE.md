@@ -49,6 +49,7 @@ A platform where university organizations create events and students book seats.
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
 | Source control | GitHub | Automated deploy via script or Docker Compose |
 | Frontend | React + Vite, `@azure/msal-react` for real login | Added 2026-09-10, matches the lab's own frontend pattern — see §9 |
+| API hardening | `helmet` (CSP + headers), `cors` allow-list, `express-rate-limit` | Added 2026-09-16 — see §4 |
 | Testing | Jest + Supertest, `npm test` | Added 2026-09-10 — Prisma/auth/Geoapify/Discord all mocked, no live dependencies needed — see §8 |
 
 ---
@@ -119,6 +120,19 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
 - **Key Vault stays on KMUTT** (§ above) — that's purely about who's paying for the VM/vault compute, and is unrelated to the auth tenant. No change needed there; `khinezar.chi1@kmutt.ac.th`'s Key Vault Secrets Officer role and the VM's managed identity are unaffected by the auth tenant switch.
 - ⚠️ **Also briefly attempted, then reverted**: switched auth to the labs' homegrown pattern (bcrypt + self-issued JWT + custom `users` table) to match what's actually *taught*, before realizing the submitted proposal explicitly commits to Entra ID/OIDC — reverted before committing. The proposal is authoritative over what the labs teach; see the note at the top of this file.
 - `src/middleware/auth.js`'s `requireAuth` upserts a local `User` row on first sign-in, keyed by the token's `oid` claim (`adObjectId`). Role is set from the token's `roles` claim **only at creation** — an existing user's role is never overwritten on later logins, since Admins manage roles through `/events/api/admin/users/:id/role` and Entra App Role assignment shouldn't silently clobber that.
+
+### Endpoint hardening, 2026-09-16 (teacher asked that nobody can update or delete anything)
+
+Authorization was already enforced — every write needs a valid Entra token, a role, and
+(for events/bookings) ownership; `/admin/*` is Admin-only; and **nothing is ever hard
+deleted**: "delete event" sets `CANCELLED`, cancelling a booking keeps the row, revoking a
+key keeps the record. `src/middleware/security.js` closes the edges around that:
+- **CORS allow-list** — only `https://chaotic-hell…/events/`, `localhost:5173` (dev) and `127.0.0.1:4173` (e2e) get CORS headers, so another website can't call the API from a logged-in student's browser. Requests with no `Origin` (curl, the room-status consumers) are unaffected — they're authenticated by bearer token or `x-api-key`. Override with `ALLOWED_ORIGINS`.
+- **Security headers via helmet**, including a Content-Security-Policy tailored to this app (self scripts; Google Fonts; OpenStreetMap tiles; `login.microsoftonline.com` for MSAL's silent-refresh iframe), `frame-ancestors 'none'`, HSTS, `nosniff`, and no `X-Powered-By`. `cspDirectives` is exported so `tests/e2e/serve-frontend.mjs` serves the e2e build under the *same* policy — the 142-check UI run passes under it, which is how we know the policy doesn't break maps, fonts or API calls.
+- **Rate limiting** per signed-in user (hashed credential, falling back to IP): 1000 requests and 200 writes per 5 minutes by default (`RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WRITES`). One noisy account can't lock others out, and reads keep working when a writer is throttled.
+- `express.json({ limit: "100kb" })` and `trust proxy 1` (Nginx sets `X-Forwarded-For`).
+- Covered by `tests/integration/security.test.js` (7 tests) and verified on the live site: headers present, a foreign origin gets no CORS headers, our own origin does.
+- Still not done: no audit log of admin actions.
 
 ### Real end-to-end test with a real Entra token, 2026-09-10 — found several serious bugs
 
