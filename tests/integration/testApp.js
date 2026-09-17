@@ -33,7 +33,8 @@ jest.mock("../../src/services/prisma", () => ({
     user: { findMany: jest.fn(), findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     auditLog: { create: jest.fn(), findMany: jest.fn() },
     apiKey: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
-    merchPreorder: { create: jest.fn(), update: jest.fn() },
+    merchPreorder: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    outboxJob: { create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
     eventImage: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     // Interactive transactions just run the callback against this same mock client.
     $transaction: jest.fn(),
@@ -41,8 +42,10 @@ jest.mock("../../src/services/prisma", () => ({
   },
 }));
 
+// Records whether it was called inside a transaction — a queued job must be part of the
+// same write as the change that needs it.
 jest.mock("../../src/services/merch", () => ({
-  sendSupplyRequest: jest.fn().mockResolvedValue(undefined),
+  enqueueSupplyRequest: jest.fn(),
 }));
 
 jest.mock("../../src/services/geoapify", () => ({
@@ -53,7 +56,7 @@ jest.mock("../../src/services/geoapify", () => ({
 const { createApp } = require("../../src/app");
 const { prisma } = require("../../src/services/prisma");
 const { searchPlaces, describeLocation } = require("../../src/services/geoapify");
-const { sendSupplyRequest } = require("../../src/services/merch");
+const { enqueueSupplyRequest } = require("../../src/services/merch");
 
 function setUser(user) {
   mockCurrentUser = user;
@@ -61,10 +64,20 @@ function setUser(user) {
 
 function resetMocks() {
   Object.entries(prisma).forEach(([key, model]) => {
+    if (key === "inTransaction") return;
     if (key.startsWith("$")) return model.mockReset();
     Object.values(model).forEach((fn) => fn.mockReset());
   });
-  prisma.$transaction.mockImplementation((fn) => fn(prisma));
+  // Interactive transactions run the callback against this same mock client, and note
+  // that they're inside one.
+  prisma.$transaction.mockImplementation(async (fn) => {
+    prisma.inTransaction = true;
+    try {
+      return await fn(prisma);
+    } finally {
+      prisma.inTransaction = false;
+    }
+  });
   prisma.$queryRaw.mockResolvedValue([]);
   // Seat-bookkeeping defaults: no confirmed seats and nobody waitlisted, unless a test says so.
   prisma.booking.count.mockResolvedValue(0);
@@ -73,8 +86,9 @@ function resetMocks() {
   prisma.booking.updateMany.mockResolvedValue({ count: 0 });
   searchPlaces.mockReset();
   describeLocation.mockReset();
-  sendSupplyRequest.mockClear();
+  enqueueSupplyRequest.mockReset();
+  enqueueSupplyRequest.mockImplementation(async () => ({ id: 1, queuedInTransaction: prisma.inTransaction === true }));
   mockCurrentUser = { id: 1, role: "STUDENT" };
 }
 
-module.exports = { createApp, prisma, searchPlaces, describeLocation, sendSupplyRequest, setUser, resetMocks };
+module.exports = { createApp, prisma, searchPlaces, describeLocation, enqueueSupplyRequest, setUser, resetMocks };

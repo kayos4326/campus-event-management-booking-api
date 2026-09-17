@@ -1,5 +1,5 @@
 const request = require("supertest");
-const { createApp, prisma, sendSupplyRequest, setUser, resetMocks } = require("./testApp");
+const { createApp, prisma, enqueueSupplyRequest, setUser, resetMocks } = require("./testApp");
 
 const app = createApp();
 
@@ -143,7 +143,9 @@ describe("POST /events/api/events", () => {
 
     expect(res.status).toBe(201);
     expect(writtenSupply()).toEqual({ item: "Water bottles", quantity: 120, status: "PENDING" });
-    expect(sendSupplyRequest).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
+    // Queued for delivery as part of the same transaction that created the event.
+    expect(enqueueSupplyRequest).toHaveBeenCalledWith(prisma, expect.objectContaining({ eventId: 3, item: "Water bottles" }));
+    expect(await enqueueSupplyRequest.mock.results[0].value).toEqual(expect.objectContaining({ queuedInTransaction: true }));
     expect(prisma.event.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ isLargeConference: true }) })
     );
@@ -177,7 +179,7 @@ describe("POST /events/api/events", () => {
 
     expect(res.status).toBe(500);
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
-    expect(sendSupplyRequest).not.toHaveBeenCalled();
+    expect(enqueueSupplyRequest).not.toHaveBeenCalled();
     console.error.mockRestore();
   });
 
@@ -218,7 +220,7 @@ describe("POST /events/api/events", () => {
       .send({ ...validEventBody, status: "DRAFT", supply: { item: "Lanyards", quantity: 40 } });
 
     expect(writtenSupply()).toEqual({ item: "Lanyards", quantity: 40, status: "PENDING" });
-    expect(sendSupplyRequest).not.toHaveBeenCalled();
+    expect(enqueueSupplyRequest).not.toHaveBeenCalled();
   });
 
   test("no supplies requested → nothing ordered and the event isn't flagged", async () => {
@@ -228,7 +230,7 @@ describe("POST /events/api/events", () => {
     await request(app).post("/events/api/events").send(validEventBody);
 
     expect(writtenSupply()).toBeUndefined();
-    expect(sendSupplyRequest).not.toHaveBeenCalled();
+    expect(enqueueSupplyRequest).not.toHaveBeenCalled();
     expect(prisma.event.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ isLargeConference: false }) })
     );
@@ -387,15 +389,17 @@ describe("PATCH /events/api/events/:id validation and seat bookkeeping", () => {
     });
   });
 
-  test("publishing a draft sends its pending supply order", async () => {
+  test("publishing a draft queues its pending supply order, inside the publish transaction", async () => {
     prisma.event.findUnique.mockResolvedValue(existingEvent({ status: "DRAFT", isLargeConference: true }));
-    const published = existingEvent({ status: "PUBLISHED", isLargeConference: true })
-    prisma.event.update.mockResolvedValue(published);
+    prisma.event.update.mockResolvedValue(existingEvent({ status: "PUBLISHED", isLargeConference: true }));
+    const order = { id: 4, eventId: 1, item: "Lanyards", quantity: 10, status: "PENDING" };
+    prisma.merchPreorder.findUnique.mockResolvedValue(order);
 
     const res = await request(app).patch("/events/api/events/1").send({ status: "PUBLISHED" });
 
     expect(res.status).toBe(200);
-    expect(sendSupplyRequest).toHaveBeenCalledWith(published);
+    expect(enqueueSupplyRequest).toHaveBeenCalledWith(prisma, order);
+    expect(await enqueueSupplyRequest.mock.results[0].value).toEqual(expect.objectContaining({ queuedInTransaction: true }));
   });
 
   test("editing an already-published event doesn't re-send its supply order", async () => {
@@ -404,7 +408,7 @@ describe("PATCH /events/api/events/:id validation and seat bookkeeping", () => {
 
     await request(app).patch("/events/api/events/1").send({ title: "New" });
 
-    expect(sendSupplyRequest).not.toHaveBeenCalled();
+    expect(enqueueSupplyRequest).not.toHaveBeenCalled();
   });
 
   test("setting status to CANCELLED via PATCH cancels bookings too", async () => {

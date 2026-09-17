@@ -1,7 +1,8 @@
 const express = require("express");
 const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
-const { sendSupplyRequest } = require("../services/merch");
+const { enqueueSupplyRequest } = require("../services/merch");
+const outbox = require("../services/outbox");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const {
   withEventTransaction,
@@ -165,8 +166,9 @@ router.post(
     // The event and its supply order are one write: either both exist or neither does.
     // Separately, a failed second insert left an event flagged as having supplies with no
     // order behind it, and a 500 that invited the organizer to create the event again.
-    const { preorder, ...event } = await prisma.$transaction((tx) =>
-      tx.event.create({
+    // Publishing straight away also queues the order to be sent, in the same transaction.
+    const { preorder, ...event } = await prisma.$transaction(async (tx) => {
+      const created = await tx.event.create({
         data: {
           title,
           description,
@@ -181,8 +183,10 @@ router.post(
           ...(supply && { preorder: { create: { item: supply.item, quantity: supply.quantity, status: "PENDING" } } }),
         },
         include: { preorder: true },
-      })
-    );
+      });
+      if (created.status === "PUBLISHED") await enqueueSupplyRequest(tx, created.preorder);
+      return created;
+    });
 
     await audit.record(req.user, {
       action: "event.created",
@@ -198,9 +202,8 @@ router.post(
         entityId: event.id,
         summary: `Ordered ${supply.quantity} × ${supply.item} for "${event.title}"`,
       });
-      // Ordered only once the event is live — see services/merch.js.
-      // Best-effort: a failed notification shouldn't block event creation.
-      if (event.status === "PUBLISHED") sendSupplyRequest(event).catch(() => {});
+      // Committed above; this just saves waiting for the worker's next poll.
+      if (event.status === "PUBLISHED") outbox.kick();
     }
 
     res.status(201).json(event);
@@ -245,9 +248,12 @@ router.patch(
       // Every key in `changes` came through the schema, so none is ever `organizerId` etc.
       const result = await tx.event.update({ where: { id: event.id }, data: changes });
 
-      // A draft's supply order is sent when it's published (services/merch.js).
+      // A draft's supply order is sent when it's published — queued here, in the same
+      // transaction as the publish, and delivered by the outbox worker (services/outbox.js).
+      let supplyQueued = null;
       if (result.status === "PUBLISHED" && event.status !== "PUBLISHED" && event.isLargeConference) {
-        sendSupplyRequest(result).catch(() => {});
+        const preorder = await tx.merchPreorder.findUnique({ where: { eventId: event.id } });
+        supplyQueued = await enqueueSupplyRequest(tx, preorder);
       }
 
       if (result.status === "CANCELLED" && event.status !== "CANCELLED") {
@@ -256,8 +262,9 @@ router.patch(
         // Covers a capacity increase, and a draft being re-published with a waitlist.
         await fillOpenSeats(tx, result);
       }
-      return { result, before: event };
+      return { result, before: event, supplyQueued };
     });
+    if (updated.supplyQueued) outbox.kick();
 
     const summary = audit.describeChanges(updated.before, changes);
     if (summary) {

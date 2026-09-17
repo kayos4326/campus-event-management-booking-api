@@ -13,9 +13,8 @@ const { SecretClient } = require("@azure/keyvault-secrets");
 // database-url and geoapify-api-key are required — nothing works without a DB, and
 // Geoapify is core to venue creation. discord-webhook-url (replaces the old
 // merch-peer-api-key since the peer-to-classmate integration was dropped 2026-09-10 —
-// see CLAUDE.md §5) is genuinely not obtained yet, so it's optional at boot: missing
-// just means the large-conference notification silently no-ops instead of blocking the
-// whole app.
+// see CLAUDE.md §5) is optional at boot: without it, supply orders wait in the outbox and
+// are retried (services/outbox.js) instead of the whole app refusing to start.
 const REQUIRED_SECRETS = ["database-url", "geoapify-api-key"];
 const OPTIONAL_SECRETS = ["discord-webhook-url"];
 

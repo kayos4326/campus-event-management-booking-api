@@ -10,6 +10,7 @@ mock everything instead. The last full run was on 2026-09-15; results are in `CL
 | `db.cjs` | `setup` creates the `e2e-…` test users. `inspect` checks booking invariants on every test event. `cleanup` deletes all test data. |
 | `api-test.mjs` | About 150 HTTP checks covering auth, validation, visibility, a 10-round **booking race**, duplicate storms, waitlist promotion order, capacity changes, cascade cancel, attendees, admin, the room-status API and the Discord trigger. |
 | `image-test.mjs` | 32 checks on event cover images: upload, the bytes surviving the round trip through `LONGBLOB`, serving without a token, the unguessable key, rejecting a non-image, the 2 MB cap, who may upload, and the image being deleted with its event. |
+| `outbox-test.mjs` | 46 checks on supply-order delivery against real MySQL, real app processes and a **fake Discord** that fails on command (nothing reaches the real channel): the event, order and job commit together or not at all (forced with MySQL triggers), retries with backoff, `retry_after` on a 429, giving up on a 404 or after the last attempt, surviving a restart and a crash mid-request, 8 simultaneous claimers never sharing a job, and `src/server.js` shutting down inside PM2's kill timeout. Needs a throwaway database: it adds and drops triggers. |
 | `image-ui-test.mjs` | Drives Chrome through picking a cover image in the event form and checks it renders — in the form, the organizer's list, the student's event card and their booking ticket. |
 | `serve-frontend.mjs` | Builds the real frontend with MSAL swapped for `msal-react-mock.js` and serves it at `127.0.0.1:4173/events/`. |
 | `ui-test.mjs` | Drives the **Google Chrome app** in a visible window through every screen as Student, Organizer and Admin. It also checks 390/768px layouts and dark mode, and saves screenshots to `ui-shots/`. |
@@ -60,6 +61,7 @@ export DATABASE_URL='mysql://campus_events_user:localdev@127.0.0.1:3307/campus_e
 npx prisma migrate deploy && node tests/e2e/db.cjs setup
 PORT=3998 RATE_LIMIT_WRITES=100000 RATE_LIMIT_REQUESTS=100000 node tests/e2e/server.cjs &
 node tests/e2e/image-test.mjs
+MYSQL="docker exec -i campus-mysql mysql -uroot -proot campus_events" node tests/e2e/outbox-test.mjs
 ```
 
 Venue creation calls Geoapify for real, so `api-test.mjs` and `ui-test.mjs` need

@@ -29,9 +29,16 @@ enum BookingStatus {
 }
 
 enum PreorderStatus {
-  PENDING
+  PENDING // not sent yet: waiting to be published, or still being retried
   CONFIRMED
-  FAILED
+  FAILED // gave up — publishing the event again queues a fresh attempt
+}
+
+enum OutboxStatus {
+  PENDING // due at runAt: a first try, or a retry after a failure
+  PROCESSING // claimed by a worker until lockedUntil
+  DONE
+  DEAD // gave up: an error retrying can't fix, or out of attempts
 }
 
 model User {
@@ -136,6 +143,32 @@ model EventImage {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@map("event_images")
+}
+
+// Work that has to happen after a database change and must not be lost — today, posting a
+// supply order to Discord. A job is written in the same transaction as the change that
+// needs it, so it exists exactly when that change does, and survives restarts. A worker in
+// the app process delivers it and retries with backoff (services/outbox.js).
+model OutboxJob {
+  id          Int          @id @default(autoincrement())
+  type        String // which handler runs it, e.g. "supply.send"
+  payload     Json
+  dedupeKey   String?      @map("dedupe_key") // at most one live job per key, e.g. "supply:12"
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  maxAttempts Int          @default(8) @map("max_attempts")
+  runAt       DateTime     @default(now()) @map("run_at")
+  lockToken   String?      @map("lock_token") // which claim owns it while PROCESSING
+  lockedUntil DateTime?    @map("locked_until")
+  lastError   String?      @map("last_error") @db.Text
+  note        String?      @db.Text // what happened, e.g. "sent: Discord message 1549…"
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  completedAt DateTime?    @map("completed_at")
+
+  @@index([status, runAt])
+  @@index([dedupeKey])
+  @@map("outbox_jobs")
 }
 
 // Who did what, kept for the Admin activity view and each event's history.

@@ -3,6 +3,7 @@
 // Safety: a "token" is just the adObjectId of a test user, and ONLY users whose
 // adObjectId starts with "e2e-" can be used — real accounts can't be impersonated.
 // Listens on 127.0.0.1 only.
+const fs = require("fs");
 const path = require("path");
 const APP_DIR = process.env.APP_DIR;
 const PORT = Number(process.env.PORT || 3998);
@@ -32,6 +33,10 @@ async function main() {
 
   const { createApp } = require(path.join(APP_DIR, "src/app"));
   createApp().listen(PORT, "127.0.0.1", () => console.log(`e2e server (${APP_DIR}) on 127.0.0.1:${PORT}`));
+
+  // Same as src/server.js: the outbox worker delivers supply orders. OUTBOX_WORKER=off to skip.
+  const outbox = fs.existsSync(path.join(APP_DIR, "src/services/outbox.js")) && require(path.join(APP_DIR, "src/services/outbox"));
+  if (outbox && process.env.OUTBOX_WORKER !== "off") outbox.startWorker();
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

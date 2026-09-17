@@ -22,10 +22,26 @@ async function bootstrapServer() {
   // later query even once the env var is set). Matches the taught pattern: Week 9's
   // lab constructs PrismaClient inside bootstrapServer(), after the secret fetch.
   const { createApp } = require("./app");
+  const outbox = require("./services/outbox");
   const app = createApp();
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`campus-event-api listening on :${PORT}`);
   });
+
+  // Delivers queued work such as supply orders (services/outbox.js). OUTBOX_WORKER=off
+  // runs the API without it, e.g. a second copy that shouldn't send anything.
+  if (process.env.OUTBOX_WORKER !== "off") outbox.startWorker();
+
+  // PM2 sends SIGINT on restart. Stop taking jobs and let the one in flight finish, well
+  // inside PM2's 1.6s kill timeout; anything cut off is retried once its lease runs out.
+  const shutdown = async (signal) => {
+    console.log(`${signal} received, shutting down`);
+    server.close();
+    await outbox.stopWorker({ timeoutMs: 1000 });
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 }
 
 bootstrapServer().catch((err) => {
