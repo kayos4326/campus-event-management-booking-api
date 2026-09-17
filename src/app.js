@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
 const { corsPolicy, securityHeaders, readLimiter, writeLimiter } = require("./middleware/security");
 
@@ -10,6 +11,15 @@ const adminRouter = require("./routes/admin");
 const meRouter = require("./routes/me");
 const { HttpError } = require("./utils/http");
 
+// Which release is running: deploy.sh writes a RELEASE file into each release directory.
+const RELEASE = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, "../RELEASE"), "utf8").trim();
+  } catch {
+    return process.env.RELEASE || "dev";
+  }
+})();
+
 function createApp() {
   const app = express();
   // Nginx sits in front (see CLAUDE.md §3), so trust its X-Forwarded-For for client IPs.
@@ -18,7 +28,19 @@ function createApp() {
   app.use(corsPolicy); // only our own frontend may call the API from a browser
   app.use(express.json({ limit: "100kb" }));
 
-  app.get("/health", (req, res) => res.json({ status: "ok" }));
+  // Only reachable on the VM itself — Nginx forwards /events, not /health. deploy.sh uses it
+  // after switching releases: `release` proves the new code is what's answering, and
+  // ?deep=1 that it can reach the database too.
+  app.get("/health", async (req, res) => {
+    const health = { status: "ok", release: RELEASE };
+    if (req.query.deep !== "1") return res.json(health);
+    try {
+      await require("./services/prisma").prisma.$queryRaw`SELECT 1`;
+      res.json({ ...health, database: "ok" });
+    } catch {
+      res.status(503).json({ ...health, status: "error", database: "unreachable" });
+    }
+  });
 
   // Abuse protection on the API only — the frontend's own files aren't rate limited.
   app.use("/events/api", readLimiter(), writeLimiter());

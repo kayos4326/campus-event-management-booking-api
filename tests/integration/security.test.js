@@ -97,3 +97,22 @@ describe("rate limiting", () => {
     expect(res.status).toBe(201);
   });
 });
+
+describe("health check", () => {
+  test("says which release is running", async () => {
+    const res = await request(app).get("/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: "ok", release: expect.any(String) });
+  });
+
+  test("?deep=1 also checks the database, and fails loudly when it's down", async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ 1: 1 }]);
+    expect((await request(app).get("/health?deep=1")).body.database).toBe("ok");
+
+    prisma.$queryRaw.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const down = await request(app).get("/health?deep=1");
+    expect(down.status).toBe(503);
+    expect(down.body.database).toBe("unreachable");
+  });
+});

@@ -31,11 +31,11 @@ scp -i ~/.ssh/bad-vps-01_key.pem tests/e2e/{server.cjs,db.cjs,api-test.mjs} azur
 # RATE_LIMIT_* are raised because the suite makes far more writes in five minutes than a
 # person would — production keeps the real limits (see src/middleware/security.js).
 ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com \
-  'cd /tmp/e2e && export APP_DIR=$HOME/campus-event-api && node db.cjs setup && (PORT=3998 RATE_LIMIT_WRITES=100000 RATE_LIMIT_REQUESTS=100000 nohup node server.cjs > server.log 2>&1 &)'
+  'cd /tmp/e2e && export APP_DIR=$HOME/campus-event-api/current && node db.cjs setup && (PORT=3998 RATE_LIMIT_WRITES=100000 RATE_LIMIT_REQUESTS=100000 nohup node server.cjs > server.log 2>&1 &)'
 
 # 2. API + race tests, run on the VM itself so timing matches production
 ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com \
-  'cd /tmp/e2e && ROUNDS=10 node api-test.mjs && APP_DIR=$HOME/campus-event-api node db.cjs inspect'
+  'cd /tmp/e2e && ROUNDS=10 node api-test.mjs && APP_DIR=$HOME/campus-event-api/current node db.cjs inspect'
 
 # 3. UI tests: tunnel to the test server, serve the test build, drive Chrome
 ssh -i ~/.ssh/bad-vps-01_key.pem -N -L 127.0.0.1:3998:127.0.0.1:3998 azureuser@chaotic-hell.eastasia.cloudapp.azure.com &
@@ -46,7 +46,7 @@ node tests/e2e/prod-login-check.mjs
 
 # 4. Clean up: delete test data, stop the test server, close the tunnel
 ssh -i ~/.ssh/bad-vps-01_key.pem azureuser@chaotic-hell.eastasia.cloudapp.azure.com \
-  'cd /tmp/e2e && APP_DIR=$HOME/campus-event-api node db.cjs cleanup; pkill -f "node server.cjs"; rm -rf /tmp/e2e'
+  'cd /tmp/e2e && APP_DIR=$HOME/campus-event-api/current node db.cjs cleanup; pkill -f "node server.cjs"; rm -rf /tmp/e2e'
 ```
 
 ## Running it all locally instead
