@@ -43,6 +43,11 @@ async function main() {
     });
     const eventIds = events.map((e) => e.id);
     const b = await prisma.booking.deleteMany({ where: { OR: [{ eventId: { in: eventIds } }, { studentId: { in: userIds } }] } });
+    // Delivery jobs point at a supply order by id (no foreign key), so they're found that way.
+    const orders = await prisma.merchPreorder.findMany({ where: { eventId: { in: eventIds } }, select: { id: true } });
+    const j = prisma.outboxJob
+      ? await prisma.outboxJob.deleteMany({ where: { dedupeKey: { in: orders.map((o) => `supply:${o.id}`) } } })
+      : { count: 0 };
     const m = await prisma.merchPreorder.deleteMany({ where: { eventId: { in: eventIds } } });
     const e = await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
     const v = await prisma.venue.deleteMany({ where: { name: { startsWith: "[E2E]" }, events: { none: {} } } });
@@ -52,7 +57,7 @@ async function main() {
       where: { OR: [{ actorId: { in: userIds } }, { summary: { contains: "[E2E]" } }, { actorLabel: { startsWith: "E2E " } }] },
     });
     const u = await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-    console.log(`deleted bookings=${b.count} preorders=${m.count} events=${e.count} venues=${v.count} apiKeys=${k.count} audit=${a.count} users=${u.count}`);
+    console.log(`deleted bookings=${b.count} outboxJobs=${j.count} preorders=${m.count} events=${e.count} venues=${v.count} apiKeys=${k.count} audit=${a.count} users=${u.count}`);
   }
 
   if (cmd === "inspect") {

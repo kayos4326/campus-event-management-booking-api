@@ -5,7 +5,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const here = fileURLToPath(new URL('.', import.meta.url))
 const frontend = fileURLToPath(new URL('../../frontend-ui/', import.meta.url))
 const { build, preview } = await import(pathToFileURL(`${frontend}node_modules/vite/dist/node/index.js`).href)
-const { default: react } = await import(pathToFileURL(`${frontend}node_modules/@vitejs/plugin-react/dist/index.js`).href)
 
 process.env.VITE_API_BASE ||= 'http://127.0.0.1:3998/events/api'
 
@@ -25,11 +24,11 @@ const policy = Object.entries(cspDirectives)
   })
   .join('; ')
 
+// The project's own vite.config.js (base path, React, chunking), so this build splits and
+// lazy-loads exactly like production; only MSAL and the output folder differ.
 const config = {
   root: frontend,
-  configFile: false,
-  base: '/events/',
-  plugins: [react()],
+  configFile: `${frontend}vite.config.js`,
   resolve: { alias: [{ find: '@azure/msal-react', replacement: `${here}msal-react-mock.js` }] },
   build: { outDir: `${here}dist`, emptyOutDir: true },
   // The referrer policy too: without it this build sent a Referer that production didn't,

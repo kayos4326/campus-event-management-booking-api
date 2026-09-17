@@ -107,8 +107,18 @@ const clickText = async (text) => {
   await el.click()
 }
 const goTab = async (hash) => { await page.goto(`${APP}#${hash}`, { waitUntil: 'domcontentloaded' }); await settle() }
-// An <img> that actually decoded has a naturalWidth; a broken one is 0.
-const imageLoaded = (selector) => page.$eval(selector, (el) => el.complete && el.naturalWidth > 0).catch(() => false)
+// An <img> that actually decoded has a naturalWidth; a broken one is 0. Waits for it, since
+// the request only starts once the element is on the page.
+const imageLoaded = (selector, timeout = 10000) =>
+  page.waitForFunction((sel) => {
+    const el = document.querySelector(sel)
+    return !!el && el.complete && el.naturalWidth > 0
+  }, { timeout }, selector).then(() => true, () => false)
+// Scoped to this run's own event, so leftovers from other suites can't be mistaken for it.
+const cardSelector = async (cardClass, title) => {
+  const index = await page.evaluate((cls, t) => [...document.querySelectorAll(cls)].findIndex((c) => c.innerText.includes(t)), cardClass, title)
+  return index < 0 ? null : `${cardClass}:nth-of-type(${index + 1})`
+}
 
 const title = `[E2E] Poster ${Date.now()}`
 
@@ -147,8 +157,8 @@ try {
   await settle()
   check('the event saved with its image', true)
 
-  const thumb = await page.$eval('.manage-thumb', (el) => ({ src: el.src, ok: el.complete && el.naturalWidth > 0 })).catch(() => null)
-  check('the organizer list shows a thumbnail', thumb?.ok, thumb)
+  const ownRow = await cardSelector('.manage-card', title)
+  check('the organizer list shows a thumbnail', ownRow && await imageLoaded(`${ownRow} .manage-thumb`), ownRow)
   await shot('organizer-list')
 
   const saved = await prisma.event.findFirst({ where: { title }, include: { image: true } })
@@ -159,18 +169,19 @@ try {
   // ------------------------------------------------------------------ the student's view
   await signInAs('e2e-s1')
   await waitText(title)
+  const ownCard = await cardSelector('.event-card', title)
+  await page.$eval(ownCard, (el) => el.scrollIntoView({ block: 'center' })) // images load lazily, when on screen
+  const loaded = await imageLoaded(`${ownCard} .event-media img`)
   const card = await page.evaluate((t) => {
     const el = [...document.querySelectorAll('.event-card')].find((c) => c.innerText.includes(t))
-    const img = el?.querySelector('.event-media img')
     const badge = el?.querySelector('.event-media .date-badge')
     return {
       hasPhoto: !!el?.querySelector('.event-media.has-photo'),
-      loaded: !!img && img.complete && img.naturalWidth > 0,
       fallback: !!el?.querySelector('.media-fallback'),
       badgeOnTop: !!badge && badge.getBoundingClientRect().width > 0,
     }
   }, title)
-  check('the student sees the photo on the event card', card.loaded, card)
+  check('the student sees the photo on the event card', loaded, card)
   check('the photo replaces the placeholder pattern', card.hasPhoto && !card.fallback, card)
   check('the date badge still sits on top of it', card.badgeOnTop, card)
   await shot('student-discover')
@@ -182,14 +193,19 @@ try {
   await waitText('Seat reserved')
   await goTab('bookings')
   await waitText(title)
-  check('the booking ticket shows the photo', await imageLoaded('.ticket-photo'))
+  const ownTicket = await cardSelector('.ticket', title)
+  check('the booking ticket shows the photo', ownTicket && await imageLoaded(`${ownTicket} .ticket-photo`), ownTicket)
   await shot('student-ticket')
 
   // ------------------------------------------------------------------ replacing/removing
   await signInAs('e2e-org')
   await goTab('organizer')
   await waitText(title)
-  await clickText('Edit')
+  // This run's own event, not whichever card happens to come first.
+  await page.evaluate((t) => {
+    const row = [...document.querySelectorAll('.manage-card')].find((c) => c.innerText.includes(t))
+    ;[...row.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Edit').click()
+  }, title)
   await page.waitForSelector('dialog[open] .image-preview img')
   check('editing shows the image already saved', await imageLoaded('dialog[open] .image-preview img'))
   await clickText('Remove')
@@ -198,7 +214,8 @@ try {
   await clickText('Save changes')
   await waitText('Event updated')
   await settle()
-  check('the thumbnail is gone from the list', (await page.$('.manage-thumb')) === null)
+  const rowAfter = await cardSelector('.manage-card', title)
+  check('the thumbnail is gone from the list', rowAfter && (await page.$(`${rowAfter} .manage-thumb`)) === null, rowAfter)
   const after = await prisma.event.findFirst({ where: { title }, include: { image: true } })
   check('the row was deleted too', after?.image === null)
   await shot('organizer-after-remove')
@@ -215,10 +232,13 @@ try {
 } finally {
   await shot('final')
   await browser.close()
-  const events = await prisma.event.findMany({ where: { title: { startsWith: '[E2E]' } }, select: { id: true } })
-  await prisma.booking.deleteMany({ where: { eventId: { in: events.map((e) => e.id) } } })
-  await prisma.event.deleteMany({ where: { id: { in: events.map((e) => e.id) } } })
-  await prisma.venue.deleteMany({ where: { name: { startsWith: '[E2E]' }, events: { none: {} } } })
+  // Only what this run created. Supply orders go first: they'd block deleting their event.
+  const events = await prisma.event.findMany({ where: { title }, select: { id: true } })
+  const ids = events.map((e) => e.id)
+  await prisma.booking.deleteMany({ where: { eventId: { in: ids } } })
+  await prisma.merchPreorder.deleteMany({ where: { eventId: { in: ids } } })
+  await prisma.event.deleteMany({ where: { id: { in: ids } } })
+  await prisma.venue.deleteMany({ where: { id: venue.id, events: { none: {} } } })
   await prisma.auditLog.deleteMany({ where: { actorLabel: { startsWith: 'E2E ' } } })
   fs.rmSync(posterPath, { force: true })
 }

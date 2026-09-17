@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarX2, Clock, MapPin, Search } from 'lucide-react'
 import { Alert, CapacityBar, DateBadge, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
-import { directionsUrl } from './VenueMap'
+import { directionsUrl } from '../lib/maps'
 import { mediaUrl } from '../api'
 import { errorMessage, formatTimeRange, isPast, seatInfo } from '../lib/format'
 

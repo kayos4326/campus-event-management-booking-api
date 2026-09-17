@@ -18,11 +18,6 @@ const pinIcon = L.divIcon({
   iconAnchor: [15, 28],
 })
 
-export const directionsUrl = (venue) =>
-  venue?.latitude != null && venue?.longitude != null
-    ? `https://www.google.com/maps/search/?api=1&query=${venue.latitude},${venue.longitude}`
-    : null
-
 /**
  * `readOnly` renders a small, non-interactive map of a saved venue.
  * Otherwise it's the picker: click or drag to place the pin, or search for a place.

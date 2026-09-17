@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ban, Clock, Hourglass, MapPin, Ticket } from 'lucide-react'
 import { Alert, ConfirmDialog, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
-import { directionsUrl } from './VenueMap'
+import { directionsUrl } from '../lib/maps'
 import { mediaUrl } from '../api'
 import { dayOfMonth, errorMessage, formatTimeRange, isPast, monthShort, weekdayShort } from '../lib/format'
 

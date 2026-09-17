@@ -7,7 +7,8 @@ import {
   Alert, CapacityBar, ConfirmDialog, DateBadge, EmptyState, Modal, Person, Segmented,
   Spinner, StatCard, StatusPill, useToast,
 } from './ui'
-import VenueMap, { directionsUrl } from './VenueMap'
+import VenueMap from './VenueMap'
+import { directionsUrl } from '../lib/maps'
 import ImagePicker from './ImagePicker'
 import { mediaUrl } from '../api'
 import { errorMessage, formatDate, formatTimeRange, isPast, timeAgo, toLocalInput } from '../lib/format'

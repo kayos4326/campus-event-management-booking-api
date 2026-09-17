@@ -5,11 +5,17 @@ import { IDLE_MINUTES, IDLE_MS, IDLE_WARNING_MS, loginRequest } from './authConf
 import { createApiClient } from './api'
 import EventsBrowse from './components/EventsBrowse'
 import MyBookings from './components/MyBookings'
-import OrganizerPanel from './components/OrganizerPanel'
-import AdminPanel from './components/AdminPanel'
+import PanelBoundary from './components/PanelBoundary'
+import { lazyPanel } from './lib/lazyPanel'
 import { Avatar, Brand, Modal, RolePill, Spinner, ToastProvider } from './components/ui'
 import { useIdleTimeout } from './lib/useIdleTimeout'
 import { cleanName } from './lib/format'
+
+// The two biggest pages load on demand. Students never download them — the organizer page
+// alone brings Leaflet (maps) and the image tools. Discover and My bookings stay in the
+// main bundle, so the first page anyone sees needs no extra request.
+const OrganizerPanel = lazyPanel(() => import('./components/OrganizerPanel'))
+const AdminPanel = lazyPanel(() => import('./components/AdminPanel'))
 
 const TABS = {
   events: { label: 'Discover', icon: Compass },
@@ -128,6 +134,14 @@ function App() {
 
   useEffect(() => { loadMe() }, [loadMe])
 
+  // Once we know the role, fetch the pages this person can open in the background, so
+  // switching to them is instant rather than waiting on a download.
+  const role = me?.role
+  useEffect(() => {
+    if (role === 'ORGANIZER' || role === 'ADMIN') OrganizerPanel.preload()
+    if (role === 'ADMIN') AdminPanel.preload()
+  }, [role])
+
   if (!isAuthenticated) {
     return <SignIn onSignIn={() => instance.loginRedirect(loginRequest)} />
   }
@@ -214,8 +228,8 @@ function App() {
       <main className="page">
         {activeTab === 'events' && <EventsBrowse api={api} role={me.role} onGoToBookings={() => goTo('bookings')} />}
         {activeTab === 'bookings' && <MyBookings api={api} onBrowse={() => goTo('events')} />}
-        {activeTab === 'organizer' && <OrganizerPanel api={api} />}
-        {activeTab === 'admin' && <AdminPanel api={api} me={me} />}
+        {activeTab === 'organizer' && <PanelBoundary key="organizer"><OrganizerPanel api={api} /></PanelBoundary>}
+        {activeTab === 'admin' && <PanelBoundary key="admin"><AdminPanel api={api} me={me} /></PanelBoundary>}
       </main>
     </ToastProvider>
   )
