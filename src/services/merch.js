@@ -11,12 +11,7 @@ const { prisma } = require("./prisma");
 // Organizers now choose the item and the amount, because an event may need t-shirts,
 // water bottles or 600 lanyards.
 
-// Recorded when the event is created; nothing is ordered yet.
-function createSupplyRequest(eventId, { item, quantity }) {
-  return prisma.merchPreorder.create({
-    data: { eventId, item, quantity, status: "PENDING" },
-  });
-}
+// The order itself is created with its event, in one transaction (routes/events.js).
 
 // Sent when the event actually goes live — a draft may never happen, so ordering
 // supplies for one would mean ordering for an event nobody can book.
@@ -42,4 +37,4 @@ async function sendSupplyRequest(event) {
   }
 }
 
-module.exports = { createSupplyRequest, sendSupplyRequest };
+module.exports = { sendSupplyRequest };

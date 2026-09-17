@@ -5,27 +5,13 @@ jest.mock("../../src/services/prisma", () => ({
 
 const axios = require("axios");
 const { prisma } = require("../../src/services/prisma");
-const { createSupplyRequest, sendSupplyRequest } = require("../../src/services/merch");
+const { sendSupplyRequest } = require("../../src/services/merch");
 
 const event = { id: 7, title: "Tech Conference", capacity: 300 };
 
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.DISCORD_WEBHOOK_URL = "https://discord.test/webhook";
-});
-
-// Until 2026-09-16 this always ordered 50 lanyards; organizers now choose both.
-describe("createSupplyRequest", () => {
-  test("records what was asked for, as PENDING — nothing is ordered yet", async () => {
-    prisma.merchPreorder.create.mockResolvedValue({ id: 1 });
-
-    await createSupplyRequest(7, { item: "Water bottles", quantity: 120 });
-
-    expect(prisma.merchPreorder.create).toHaveBeenCalledWith({
-      data: { eventId: 7, item: "Water bottles", quantity: 120, status: "PENDING" },
-    });
-    expect(axios.post).not.toHaveBeenCalled();
-  });
 });
 
 describe("sendSupplyRequest", () => {

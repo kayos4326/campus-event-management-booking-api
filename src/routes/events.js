@@ -1,7 +1,7 @@
 const express = require("express");
 const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
-const { createSupplyRequest, sendSupplyRequest } = require("../services/merch");
+const { sendSupplyRequest } = require("../services/merch");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const {
   withEventTransaction,
@@ -162,20 +162,27 @@ router.post(
       return res.status(400).json({ error: "That venue doesn't exist" });
     }
 
-    const event = await prisma.event.create({
-      data: {
-        title,
-        description,
-        startsAt,
-        endsAt,
-        capacity,
-        venueId: venue.id,
-        organizerId: req.user.id,
-        // The flag now just records "this event has a supply order attached".
-        isLargeConference: Boolean(supply),
-        status,
-      },
-    });
+    // The event and its supply order are one write: either both exist or neither does.
+    // Separately, a failed second insert left an event flagged as having supplies with no
+    // order behind it, and a 500 that invited the organizer to create the event again.
+    const { preorder, ...event } = await prisma.$transaction((tx) =>
+      tx.event.create({
+        data: {
+          title,
+          description,
+          startsAt,
+          endsAt,
+          capacity,
+          venueId: venue.id,
+          organizerId: req.user.id,
+          // The flag now just records "this event has a supply order attached".
+          isLargeConference: Boolean(supply),
+          status,
+          ...(supply && { preorder: { create: { item: supply.item, quantity: supply.quantity, status: "PENDING" } } }),
+        },
+        include: { preorder: true },
+      })
+    );
 
     await audit.record(req.user, {
       action: "event.created",
@@ -184,8 +191,7 @@ router.post(
       summary: `Created "${event.title}" (${event.capacity} seats, ${String(event.status).toLowerCase()})`,
     });
 
-    if (supply) {
-      await createSupplyRequest(event.id, supply);
+    if (preorder) {
       await audit.record(req.user, {
         action: "event.supplies_requested",
         entityType: "event",

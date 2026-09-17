@@ -1,5 +1,5 @@
 const request = require("supertest");
-const { createApp, prisma, createSupplyRequest, sendSupplyRequest, setUser, resetMocks } = require("./testApp");
+const { createApp, prisma, sendSupplyRequest, setUser, resetMocks } = require("./testApp");
 
 const app = createApp();
 
@@ -15,6 +15,16 @@ const validEventBody = {
   capacity: 10,
   venueId: 1,
 };
+
+// Stands in for the database: the created event comes back as written, with its nested
+// supply order (if any) the way `include: { preorder: true }` returns it.
+const createReturnsWhatWasWritten = (id, extra = {}) =>
+  prisma.event.create.mockImplementation(async ({ data }) => {
+    const { preorder, ...event } = data;
+    return { id, ...event, ...extra, preorder: preorder ? { id: 1, eventId: id, ...preorder.create } : null };
+  });
+
+const writtenSupply = () => prisma.event.create.mock.calls[0][0].data.preorder?.create;
 
 const existingEvent = (overrides = {}) => ({
   id: 1,
@@ -125,30 +135,61 @@ describe("POST /events/api/events", () => {
   // Replaced the old fixed "50 lanyards" flag on 2026-09-16: organizers choose both.
   test("orders the supplies the organizer asked for", async () => {
     setUser({ id: 2, role: "ORGANIZER" });
-    const created = { id: 3, ...validEventBody, organizerId: 2, status: "PUBLISHED", isLargeConference: true };
-    prisma.event.create.mockResolvedValue(created);
+    createReturnsWhatWasWritten(3);
 
     const res = await request(app)
       .post("/events/api/events")
       .send({ ...validEventBody, status: "PUBLISHED", supply: { item: "  Water bottles ", quantity: 120 } });
 
     expect(res.status).toBe(201);
-    expect(createSupplyRequest).toHaveBeenCalledWith(3, { item: "Water bottles", quantity: 120 });
-    expect(sendSupplyRequest).toHaveBeenCalledWith(created);
+    expect(writtenSupply()).toEqual({ item: "Water bottles", quantity: 120, status: "PENDING" });
+    expect(sendSupplyRequest).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
     expect(prisma.event.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ isLargeConference: true }) })
     );
+    // The response is the event itself; the order isn't mixed into it.
+    expect(res.body.preorder).toBeUndefined();
+  });
+
+  // A separate second insert could fail after the event was already saved, leaving an
+  // event flagged as having supplies with no order — and a 500 that invited a retry.
+  test("the event and its supply order are written together, in one transaction", async () => {
+    setUser({ id: 2, role: "ORGANIZER" });
+    createReturnsWhatWasWritten(3);
+
+    await request(app)
+      .post("/events/api/events")
+      .send({ ...validEventBody, supply: { item: "Lanyards", quantity: 40 } });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.event.create).toHaveBeenCalledTimes(1);
+    expect(writtenSupply()).toEqual({ item: "Lanyards", quantity: 40, status: "PENDING" });
+  });
+
+  test("if that write fails, nothing is logged or ordered and the organizer gets an error", async () => {
+    setUser({ id: 2, role: "ORGANIZER" });
+    prisma.event.create.mockRejectedValue(new Error("deadlock"));
+    jest.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await request(app)
+      .post("/events/api/events")
+      .send({ ...validEventBody, status: "PUBLISHED", supply: { item: "Lanyards", quantity: 40 } });
+
+    expect(res.status).toBe(500);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(sendSupplyRequest).not.toHaveBeenCalled();
+    console.error.mockRestore();
   });
 
   test("an amount left empty means one per seat", async () => {
     setUser({ id: 2, role: "ORGANIZER" });
-    prisma.event.create.mockResolvedValue({ id: 3, ...validEventBody, organizerId: 2 });
+    createReturnsWhatWasWritten(3);
 
     await request(app)
       .post("/events/api/events")
       .send({ ...validEventBody, capacity: 250, supply: { item: "Blank lanyards" } });
 
-    expect(createSupplyRequest).toHaveBeenCalledWith(3, { item: "Blank lanyards", quantity: 250 });
+    expect(writtenSupply()).toEqual({ item: "Blank lanyards", quantity: 250, status: "PENDING" });
   });
 
   test.each([
@@ -165,30 +206,28 @@ describe("POST /events/api/events", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(message);
     expect(prisma.event.create).not.toHaveBeenCalled();
-    expect(createSupplyRequest).not.toHaveBeenCalled();
   });
 
   // Ordering supplies for a draft would mean ordering for an event nobody can book yet.
   test("a draft records the supply order but doesn't send it until it's published", async () => {
     setUser({ id: 2, role: "ORGANIZER" });
-    const draft = { id: 9, ...validEventBody, organizerId: 2, status: "DRAFT", isLargeConference: true };
-    prisma.event.create.mockResolvedValue(draft);
+    createReturnsWhatWasWritten(9);
 
     await request(app)
       .post("/events/api/events")
       .send({ ...validEventBody, status: "DRAFT", supply: { item: "Lanyards", quantity: 40 } });
 
-    expect(createSupplyRequest).toHaveBeenCalledWith(9, { item: "Lanyards", quantity: 40 });
+    expect(writtenSupply()).toEqual({ item: "Lanyards", quantity: 40, status: "PENDING" });
     expect(sendSupplyRequest).not.toHaveBeenCalled();
   });
 
   test("no supplies requested → nothing ordered and the event isn't flagged", async () => {
     setUser({ id: 2, role: "ORGANIZER" });
-    prisma.event.create.mockResolvedValue({ id: 4, ...validEventBody, organizerId: 2 });
+    createReturnsWhatWasWritten(4);
 
     await request(app).post("/events/api/events").send(validEventBody);
 
-    expect(createSupplyRequest).not.toHaveBeenCalled();
+    expect(writtenSupply()).toBeUndefined();
     expect(sendSupplyRequest).not.toHaveBeenCalled();
     expect(prisma.event.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ isLargeConference: false }) })
