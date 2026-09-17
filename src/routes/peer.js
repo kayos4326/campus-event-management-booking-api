@@ -2,6 +2,8 @@ const express = require("express");
 const { prisma } = require("../services/prisma");
 const { requirePeerApiKey } = require("../middleware/apiKey");
 const { asyncHandler } = require("../middleware/asyncHandler");
+const { validate } = require("../validation/validate");
+const schemas = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -12,11 +14,9 @@ const router = express.Router();
 router.get(
   "/events/active",
   requirePeerApiKey("room-status:read"),
+  validate({ query: schemas.roomQuery }),
   asyncHandler(async (req, res) => {
-    const room = req.query.room;
-    if (!room) {
-      return res.status(400).json({ error: "room query param is required" });
-    }
+    const { room } = req.valid.query;
 
     const now = new Date();
     const event = await prisma.event.findFirst({
@@ -24,7 +24,7 @@ router.get(
         status: "PUBLISHED",
         startsAt: { lte: now },
         endsAt: { gte: now },
-        venue: { roomNumber: String(room) },
+        venue: { roomNumber: room },
       },
     });
 

@@ -4,7 +4,8 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const { bookSeat, cancelBooking } = require("../services/bookings");
 const { IMAGE_SELECT, withImageUrl } = require("../services/eventImages");
-const { parseId } = require("../utils/http");
+const { validate } = require("../validation/validate");
+const schemas = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -15,13 +16,11 @@ router.post(
   "/",
   requireAuth,
   requireRole("STUDENT"),
+  validate({ body: schemas.bookingCreate }),
   asyncHandler(async (req, res) => {
-    const { eventId } = req.body;
-    if (!eventId) return res.status(400).json({ error: "eventId is required" });
-
     let booking;
     try {
-      booking = await bookSeat(parseId(eventId), req.user.id);
+      booking = await bookSeat(req.valid.body.eventId, req.user.id);
     } catch (err) {
       // P2002: unique constraint on (eventId, studentId) — confirmed directly by
       // testing a duplicate booking; without this it surfaced as a generic 500. The
@@ -54,8 +53,9 @@ router.patch(
   "/:id/cancel",
   requireAuth,
   requireRole("STUDENT"),
+  validate({ params: schemas.idParams }),
   asyncHandler(async (req, res) => {
-    const cancelled = await cancelBooking(parseId(req.params.id), req.user.id);
+    const cancelled = await cancelBooking(req.valid.params.id, req.user.id);
     res.json(cancelled);
   })
 );

@@ -98,10 +98,10 @@ describe("GET /events/api/events/:id/image/:key", () => {
     // Prisma returns `Bytes` as a Uint8Array, not a Buffer — res.send() would JSON-encode
     // that, so the mock returns what the real client returns.
     prisma.eventImage.findUnique.mockResolvedValue({
-      eventId: 7, key: "abc", mimeType: "image/png", bytes: new Uint8Array(PNG),
+      eventId: 7, key: "0123456789abcdef01234567", mimeType: "image/png", bytes: new Uint8Array(PNG),
     });
 
-    const res = await request(app).get("/events/api/events/7/image/abc");
+    const res = await request(app).get("/events/api/events/7/image/0123456789abcdef01234567");
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("image/png");
@@ -115,13 +115,20 @@ describe("GET /events/api/events/:id/image/:key", () => {
   test("the key is what grants access: a wrong one is a 404", async () => {
     prisma.eventImage.findUnique.mockResolvedValue(null);
 
-    expect((await request(app).get("/events/api/events/7/image/guessed")).status).toBe(404);
+    expect((await request(app).get("/events/api/events/7/image/ffffffffffffffffffffffff")).status).toBe(404);
+  });
+
+  test("a key that can't be a real one is turned away before the database", async () => {
+    const res = await request(app).get("/events/api/events/7/image/guessed");
+
+    expect(res.status).toBe(404);
+    expect(prisma.eventImage.findUnique).not.toHaveBeenCalled();
   });
 
   test("a valid key belonging to a different event doesn't work", async () => {
-    prisma.eventImage.findUnique.mockResolvedValue({ eventId: 8, key: "abc", mimeType: "image/png", bytes: new Uint8Array(PNG) });
+    prisma.eventImage.findUnique.mockResolvedValue({ eventId: 8, key: "0123456789abcdef01234567", mimeType: "image/png", bytes: new Uint8Array(PNG) });
 
-    expect((await request(app).get("/events/api/events/7/image/abc")).status).toBe(404);
+    expect((await request(app).get("/events/api/events/7/image/0123456789abcdef01234567")).status).toBe(404);
   });
 });
 

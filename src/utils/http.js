@@ -7,16 +7,6 @@ class HttpError extends Error {
   }
 }
 
-// `Number("abc")` is NaN, which Prisma rejects with a generic 500 — treat any id that
-// isn't a positive integer as simply not found.
-function parseId(value) {
-  const id = Number(value);
-  if (!Number.isInteger(id) || id < 1) {
-    throw new HttpError(404, "Not found");
-  }
-  return id;
-}
-
 // AU directory names arrive as "THAR LIN HTET -"; audit entries read better tidied up.
 function cleanNameOf(user) {
   const raw = (user?.displayName || user?.email || "System").replace(/[\s-]+$/, "").trim();
@@ -26,4 +16,4 @@ function cleanNameOf(user) {
   return raw;
 }
 
-module.exports = { HttpError, parseId, cleanNameOf };
+module.exports = { HttpError, cleanNameOf };

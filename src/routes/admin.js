@@ -4,7 +4,8 @@ const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { hashApiKey } = require("../middleware/apiKey");
 const { asyncHandler } = require("../middleware/asyncHandler");
-const { parseId } = require("../utils/http");
+const { validate } = require("../validation/validate");
+const schemas = require("../validation/schemas");
 const { withSeatCounts } = require("../services/bookings");
 const { IMAGE_SELECT, withImageUrl } = require("../services/eventImages");
 const audit = require("../services/audit");
@@ -24,12 +25,10 @@ router.get(
 
 router.patch(
   "/users/:id/role",
+  validate({ params: schemas.idParams, body: schemas.roleChange }),
   asyncHandler(async (req, res) => {
-    const id = parseId(req.params.id);
-    const { role } = req.body;
-    if (!["STUDENT", "ORGANIZER", "ADMIN"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
+    const { id } = req.valid.params;
+    const { role } = req.valid.body;
     // Demoting yourself locks you out of this panel immediately, with no way back
     // through the app (happened twice during testing). Another Admin has to do it.
     if (id === req.user.id && role !== "ADMIN") {
@@ -83,10 +82,11 @@ router.get(
 // Who changed what, newest first — the answer to "who cancelled this event?".
 router.get(
   "/audit",
+  validate({ query: schemas.auditQuery }),
   asyncHandler(async (req, res) => {
     const entries = await prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
-      take: Math.min(Number(req.query.limit) || 100, 500),
+      take: req.valid.query.limit,
     });
     res.json(entries);
   })
@@ -110,11 +110,9 @@ router.get(
 // is persisted.
 router.post(
   "/api-keys",
+  validate({ body: schemas.apiKeyCreate }),
   asyncHandler(async (req, res) => {
-    const { ownerLabel, scope } = req.body;
-    if (!ownerLabel || !scope) {
-      return res.status(400).json({ error: "ownerLabel and scope are required" });
-    }
+    const { ownerLabel, scope } = req.valid.body;
 
     const rawKey = crypto.randomBytes(32).toString("hex");
     const apiKey = await prisma.apiKey.create({
@@ -141,9 +139,10 @@ router.post(
 
 router.delete(
   "/api-keys/:id",
+  validate({ params: schemas.idParams }),
   asyncHandler(async (req, res) => {
     const apiKey = await prisma.apiKey.update({
-      where: { id: parseId(req.params.id) },
+      where: { id: req.valid.params.id },
       data: { isActive: false },
       // Never send the stored hash back out, even for a revoked key.
       select: { id: true, ownerLabel: true, scope: true, isActive: true, createdAt: true },
