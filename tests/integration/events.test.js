@@ -409,8 +409,8 @@ describe("GET /events/api/events", () => {
 
     expect(prisma.booking.groupBy).toHaveBeenCalledTimes(1);
     expect(res.body).toEqual([
-      { id: 1, capacity: 5, seats: { confirmed: 5, waitlisted: 2 } },
-      { id: 2, capacity: 3, seats: { confirmed: 0, waitlisted: 0 } },
+      { id: 1, capacity: 5, seats: { confirmed: 5, waitlisted: 2 }, imageUrl: null },
+      { id: 2, capacity: 3, seats: { confirmed: 0, waitlisted: 0 }, imageUrl: null },
     ]);
   });
 

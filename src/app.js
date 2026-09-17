@@ -44,6 +44,10 @@ function createApp() {
     if (err.type === "entity.parse.failed") {
       return res.status(400).json({ error: "Request body is not valid JSON" });
     }
+    // A cover image bigger than the cap in services/eventImages.js.
+    if (err.type === "entity.too.large") {
+      return res.status(413).json({ error: "That file is too large — use an image under 2 MB" });
+    }
     // P2025: the record to update doesn't exist (e.g. a role change for an unknown user id).
     if (err.code === "P2025") {
       return res.status(404).json({ error: "Not found" });

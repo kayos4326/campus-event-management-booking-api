@@ -8,11 +8,15 @@ import {
   Spinner, StatCard, StatusPill, useToast,
 } from './ui'
 import VenueMap, { directionsUrl } from './VenueMap'
+import ImagePicker from './ImagePicker'
+import { mediaUrl } from '../api'
 import { errorMessage, formatDate, formatTimeRange, isPast, timeAgo, toLocalInput } from '../lib/format'
 
 const emptyEvent = {
   title: '', description: '', capacity: 50, startsAt: '', endsAt: '',
   venueId: '', supplyItem: '', supplyQuantity: '', status: 'PUBLISHED',
+  // The cover image is saved after the event itself — see saveImage() below.
+  imageUrl: null, imageBlob: null, imagePreview: null, imageCleared: false,
 }
 
 function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddVenue }) {
@@ -25,6 +29,14 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
 
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+
+  // The event's own image while it's being replaced, else whatever is already saved.
+  const preview = form.imagePreview || (form.imageCleared ? null : mediaUrl(form.imageUrl))
+
+  const pickImage = (blob, url) => {
+    if (form.imagePreview) URL.revokeObjectURL(form.imagePreview)
+    setForm({ ...form, imageBlob: blob, imagePreview: url, imageCleared: !blob })
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -72,6 +84,10 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
           <span className="field-label">Description</span>
           <textarea className="textarea" value={form.description || ''} onChange={set('description')} placeholder="What should students know before they book?" />
         </label>
+        <div className="field span-2">
+          <span className="field-label">Cover image <span className="field-hint">(optional)</span></span>
+          <ImagePicker preview={preview} onChange={pickImage} />
+        </div>
         <label className="field">
           <span className="field-label">Starts</span>
           <input className="input" type="datetime-local" required value={form.startsAt} onChange={set('startsAt')} />
@@ -352,6 +368,25 @@ export default function OrganizerPanel({ api }) {
 
   const visible = (events || []).filter((e) => filter === 'all' || e.status === filter)
 
+  // The upload endpoint needs an event id, so the cover image is saved once the event
+  // exists. A failed image is reported on its own — the event itself is already saved,
+  // and saying "couldn't save the event" would be wrong.
+  const saveImage = async (eventId, form) => {
+    try {
+      if (form.imageBlob) {
+        await api.post(`/events/${eventId}/image`, form.imageBlob, { headers: { 'Content-Type': form.imageBlob.type } })
+      } else if (form.imageCleared && form.imageUrl) {
+        await api.delete(`/events/${eventId}/image`)
+      }
+    } catch (err) {
+      toast({
+        tone: 'warning',
+        title: 'The event was saved, but the image wasn’t',
+        body: errorMessage(err, 'Open Edit and try adding it again.'),
+      })
+    }
+  }
+
   const submitEvent = async (form) => {
     if (formMode === 'edit') {
       await api.patch(`/events/${editing.id}`, {
@@ -361,11 +396,12 @@ export default function OrganizerPanel({ api }) {
         startsAt: new Date(form.startsAt).toISOString(),
         endsAt: new Date(form.endsAt).toISOString(),
       })
+      await saveImage(editing.id, form)
       toast({ title: 'Event updated', body: form.title })
     } else {
       const item = form.supplyItem.trim()
       const quantity = form.supplyQuantity === '' ? undefined : Number(form.supplyQuantity)
-      await api.post('/events', {
+      const { data: created } = await api.post('/events', {
         title: form.title,
         description: form.description,
         status: form.status,
@@ -375,6 +411,7 @@ export default function OrganizerPanel({ api }) {
         endsAt: new Date(form.endsAt).toISOString(),
         ...(item && { supply: { item, ...(quantity !== undefined && { quantity }) } }),
       })
+      await saveImage(created.id, form)
       toast({
         title: form.status === 'PUBLISHED' ? 'Event published' : 'Draft saved',
         body: item
@@ -496,6 +533,7 @@ export default function OrganizerPanel({ api }) {
             const ended = isPast(event)
             return (
               <article key={event.id} className="card manage-card">
+                {event.imageUrl && <img className="manage-thumb" src={mediaUrl(event.imageUrl)} alt="" loading="lazy" />}
                 <DateBadge date={event.startsAt} muted={cancelled || ended} />
                 <div className="manage-main">
                   <div className="manage-title">

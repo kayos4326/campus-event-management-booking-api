@@ -6,6 +6,7 @@ const { hashApiKey } = require("../middleware/apiKey");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const { parseId } = require("../utils/http");
 const { withSeatCounts } = require("../services/bookings");
+const { IMAGE_SELECT, withImageUrl } = require("../services/eventImages");
 const audit = require("../services/audit");
 
 const router = express.Router();
@@ -57,10 +58,11 @@ router.get(
         venue: true,
         organizer: { select: { id: true, displayName: true, email: true } },
         preorder: true,
+        image: IMAGE_SELECT,
       },
       orderBy: { startsAt: "desc" },
     });
-    res.json(await withSeatCounts(events));
+    res.json((await withSeatCounts(events)).map(withImageUrl));
   })
 );
 

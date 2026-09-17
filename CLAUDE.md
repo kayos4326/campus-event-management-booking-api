@@ -26,6 +26,7 @@ A platform where university organizations create events and students book seats.
   RSVPs (or joins the waitlist once full), cancels their own bookings
 - **Admin**: manages users/roles, issues/revokes peer API keys, sees all events/bookings
 - Venue locations are set by dropping a pin on a map (Leaflet + OpenStreetMap); Geoapify turns that pin into an address and powers place search — see §9
+- An event can carry a **cover image** the organizer uploads, shown behind the date on the student's event card — see §9
 - An organizer can attach a **supply order** to an event (what to order, how many — e.g.
   "200 × Blank lanyards"), which is posted to a Discord channel when the event is
   published (see §5 — originally this called a classmate team's API for a fixed 50
@@ -342,6 +343,18 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 - Migration `20260916010000_drop_static_map_url` drops `venues.static_map_url`; `src/services/geoapify.js` no longer builds static map URLs, so the API key is no longer exposed anywhere.
 - **Two bugs found by the live tests while building this** (both fixed): reverse geocoding a pin in the open sea returns `{ formatted: "Earth" }` rather than nothing, so "is this a real place?" now checks for a `country`; and it labels a pin with the *nearest landmark*, which put "Museum, …" on a campus pin 95 m away — that prefix is dropped when the landmark is more than 50 m from the pin.
 - Verified live: API suite **139/139** (including pin validation and the Thailand-biased search), UI suite **138/138** in Chrome (dropping a pin, searching, the venue-card map, directions links, and a check that the string "geoapify" appears nowhere in the page), live site **12/12**.
+
+**Event cover images, 2026-09-17.** Thar pointed at the empty panel behind the date badge on
+the student's event card and asked for a picture to upload there. The organizer picks one in
+the event form (drag-and-drop or a file picker); it shows on the event card, the booking
+ticket and their own event list.
+- **Stored in the database** (`event_images`, `LONGBLOB`, migration `20260917090000_event_cover_image`), not on the VM's disk: redeploys, container rebuilds and DB restores all keep the posters, and there's no filesystem to keep writable. Its own table, so listing events never reads the bytes — event queries pull `image: { select: { key: true } }` only.
+- **The browser resizes first** (`frontend-ui/src/lib/image.js`): canvas downscale to ≤1600×1200, re-encode as JPEG at falling quality until it's under ~900 KB (a transparent PNG is flattened onto white first, or JPEG would render it black). A 4 MB phone photo lands at roughly 150 KB. The server caps what it will accept at 2 MB → `413`.
+- **No multipart, no new dependency**: the raw file *is* the request body (`express.raw`, `Content-Type: image/jpeg`), and the frontend posts the Blob straight from the canvas.
+- **The bytes decide the type, not the header** — a `Content-Type: image/jpeg` on a PHP script is rejected by a magic-number check (`src/services/eventImages.js`), because whatever is stored is served back under an image type later.
+- **`GET /events/api/events/:id/image/:key` is the one endpoint with no token** — an `<img>` tag can't send an `Authorization` header. A random 96-bit `key`, minted fresh on every upload, stands in for one: the URL is unguessable (so a draft's poster isn't public), and it changes when the image does, which makes `Cache-Control: immutable` safe. It also sets `Cross-Origin-Resource-Policy: cross-origin`, overriding helmet's global `same-origin` — otherwise the image is blocked whenever the API isn't the page's own origin (`npm run dev`, the e2e build).
+- **Two real bugs, both found only by running it for real** (neither is visible with mocks): Prisma 6 returns `Bytes` as a `Uint8Array`, so `res.send()` JSON-encoded the image into an array of numbers and served it as `image/png` — 527 bytes instead of 69; and the CORP header above. The offline test now mocks `bytes` as a `Uint8Array` for exactly this reason.
+- Verified on a throwaway MySQL in Docker rather than production: **32/32** image API checks (`tests/e2e/image-test.mjs`), **16/16** in Chrome (`tests/e2e/image-ui-test.mjs` — a real 1200×675 file picked in the form, resized by the browser, uploaded, and rendering on the student's card), **164/166** api-test and **148/149** ui-test with no new failures (the 3 that fail are the Discord posts, deliberately disabled locally), and 164 offline tests.
 
 **Shared-computer sign-in, 2026-09-16** (the teacher's concern: lab machines are shared, and
 one student must not end up using another's account):

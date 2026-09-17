@@ -34,6 +34,7 @@ jest.mock("../../src/services/prisma", () => ({
     auditLog: { create: jest.fn(), findMany: jest.fn() },
     apiKey: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     merchPreorder: { create: jest.fn(), update: jest.fn() },
+    eventImage: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     // Interactive transactions just run the callback against this same mock client.
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),

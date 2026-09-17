@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ban, Clock, Hourglass, MapPin, Ticket } from 'lucide-react'
 import { Alert, ConfirmDialog, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
 import { directionsUrl } from './VenueMap'
+import { mediaUrl } from '../api'
 import { dayOfMonth, errorMessage, formatTimeRange, isPast, monthShort, weekdayShort } from '../lib/format'
 
 function TicketCard({ booking, busy, onCancel, onRebook }) {
@@ -18,6 +19,7 @@ function TicketCard({ booking, busy, onCancel, onRebook }) {
         <strong>{dayOfMonth(event.startsAt)}</strong>
         <small>{weekdayShort(event.startsAt)}</small>
       </div>
+      {event.imageUrl && <img className="ticket-photo" src={mediaUrl(event.imageUrl)} alt="" loading="lazy" />}
       <div className="ticket-main">
         <div className="ticket-top">
           <h3>{event.title}</h3>

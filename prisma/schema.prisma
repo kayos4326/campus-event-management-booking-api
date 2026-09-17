@@ -81,6 +81,7 @@ model Event {
   venue     Venue          @relation(fields: [venueId], references: [id])
   bookings  Booking[]
   preorder  MerchPreorder?
+  image     EventImage?
 
   @@index([venueId])
   @@index([organizerId])
@@ -117,6 +118,24 @@ model MerchPreorder {
   event Event @relation(fields: [eventId], references: [id])
 
   @@map("merch_preorders")
+}
+
+// The poster an organizer uploads for an event. Its own table so listing events never
+// drags image bytes along, and stored in the database rather than on the VM's disk so a
+// redeploy, a container rebuild and a DB restore all keep the images. The browser
+// downscales before uploading, so rows are a few hundred KB.
+model EventImage {
+  eventId   Int      @id @map("event_id")
+  // Random, and regenerated on every upload: the URL is unguessable (so a draft's poster
+  // isn't public) and changes when the image does (so caches can't serve a stale one).
+  key       String   @unique
+  mimeType  String   @map("mime_type")
+  bytes     Bytes    @db.LongBlob
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_images")
 }
 
 // Who did what, kept for the Admin activity view and each event's history.

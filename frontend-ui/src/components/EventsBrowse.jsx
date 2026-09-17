@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarX2, Clock, MapPin, Search } from 'lucide-react'
 import { Alert, CapacityBar, DateBadge, EmptyState, Segmented, Spinner, StatusPill, useToast } from './ui'
 import { directionsUrl } from './VenueMap'
+import { mediaUrl } from '../api'
 import { errorMessage, formatTimeRange, isPast, seatInfo } from '../lib/format'
 
 function EventCard({ event, booking, role, busy, onBook }) {
@@ -26,8 +27,10 @@ function EventCard({ event, booking, role, busy, onBook }) {
 
   return (
     <article className="event-card">
-      <div className="event-media">
-        <div className="media-fallback" />
+      <div className={`event-media ${event.imageUrl ? 'has-photo' : ''}`}>
+        {event.imageUrl
+          ? <img src={mediaUrl(event.imageUrl)} alt="" loading="lazy" />
+          : <div className="media-fallback" />}
         <DateBadge date={event.startsAt} />
         <div className="media-chips">
           {ended && <span className="pill no-dot">Ended</span>}

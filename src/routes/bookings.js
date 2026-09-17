@@ -3,6 +3,7 @@ const { prisma } = require("../services/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/asyncHandler");
 const { bookSeat, cancelBooking } = require("../services/bookings");
+const { IMAGE_SELECT, withImageUrl } = require("../services/eventImages");
 const { parseId } = require("../utils/http");
 
 const router = express.Router();
@@ -41,10 +42,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: { studentId: req.user.id },
-      include: { event: { include: { venue: true } } },
+      include: { event: { include: { venue: true, image: IMAGE_SELECT } } },
       orderBy: { createdAt: "desc" },
     });
-    res.json(bookings);
+    res.json(bookings.map((booking) => ({ ...booking, event: withImageUrl(booking.event) })));
   })
 );
 

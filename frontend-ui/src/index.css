@@ -223,6 +223,26 @@ a { color: inherit; }
 .supply-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; }
 @media (max-width: 720px) { .supply-fields { grid-template-columns: minmax(0, 1fr); } }
 
+/* Cover image picker (event form) */
+.image-picker { display: grid; gap: 8px; }
+.image-drop {
+  display: grid; place-items: center; align-content: center; gap: 4px;
+  width: 100%; aspect-ratio: 16 / 7; max-height: 190px; padding: 16px;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--text-2); cursor: pointer; text-align: center;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.image-drop:hover, .image-drop.is-dragging { border-color: var(--text); background: var(--surface-3); color: var(--text); }
+.image-drop:disabled { cursor: progress; }
+.image-drop svg { width: 26px; height: 26px; color: var(--text-3); }
+.image-drop strong { font-size: 14px; font-weight: 600; color: var(--text); }
+.image-drop span { font-size: 12px; }
+.image-preview { position: relative; aspect-ratio: 16 / 7; max-height: 190px; border-radius: var(--radius); overflow: hidden; background: var(--surface-2); }
+.image-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.image-preview-actions { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; }
+.image-preview-actions .btn { background: var(--surface); box-shadow: var(--shadow-sm); }
+.field-hint.danger { color: var(--danger); }
+
 /* Switch */
 .switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
@@ -471,7 +491,12 @@ a { color: inherit; }
 .event-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--border-strong); }
 
 .event-media { position: relative; aspect-ratio: 16 / 8; background: var(--surface-2); overflow: hidden; }
-.event-media img { width: 100%; height: 100%; object-fit: cover; filter: saturate(0.85); }
+.event-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* Keeps the date badge and the "Ended" chip readable over a bright photo. */
+.event-media.has-photo::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0) 55%);
+}
 .media-fallback {
   width: 100%; height: 100%;
   background:
@@ -562,6 +587,7 @@ a { color: inherit; }
 .ticket.is-cancelled .ticket-stub { background: var(--surface-3); color: var(--text-2); }
 .ticket.is-cancelled .ticket-stub span { color: var(--text-3); }
 
+.ticket-photo { width: 132px; flex-shrink: 0; object-fit: cover; align-self: stretch; }
 .ticket-main { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 18px 20px; }
 .ticket-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .ticket-top h3 { font-size: 19px; }
@@ -579,6 +605,7 @@ a { color: inherit; }
 .manage-title h3 { font-size: 18px; }
 .manage-main .capacity { max-width: 420px; margin-top: 2px; }
 .manage-actions { display: flex; justify-content: flex-end; gap: 6px; flex-shrink: 0; }
+.manage-thumb { width: 96px; height: 60px; flex-shrink: 0; object-fit: cover; border-radius: var(--radius); }
 .manage-card .date-badge { background: var(--surface-2); }
 .date-badge.muted { opacity: 0.6; }
 .date-badge.muted span { color: var(--text-3); }
@@ -796,6 +823,8 @@ a { color: inherit; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: auto; }
   .ticket { flex-wrap: wrap; }
+  /* The stub, the title and the actions need the width here — the photo is on Discover. */
+  .ticket-photo { display: none; }
   .ticket-stub { width: 84px; }
   .ticket-stub strong { font-size: 30px; }
   .ticket-main { padding: 16px; }

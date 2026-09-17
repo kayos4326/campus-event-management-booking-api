@@ -17,7 +17,10 @@ const { cspDirectives } = createRequire(import.meta.url)('../../src/middleware/s
 const kebab = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 const policy = Object.entries(cspDirectives)
   .map(([name, values]) => {
-    const list = name === 'connectSrc' ? [...values, process.env.VITE_API_BASE.replace('/events/api', '')] : values
+    // Cover images and API calls come from the tunnelled test API, which in production is
+    // the app's own origin and so already covered by 'self'.
+    const apiOrigin = process.env.VITE_API_BASE.replace('/events/api', '')
+    const list = name === 'connectSrc' || name === 'imgSrc' ? [...values, apiOrigin] : values
     return `${kebab(name)} ${list.join(' ')}`
   })
   .join('; ')

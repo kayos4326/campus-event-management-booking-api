@@ -11,9 +11,22 @@ const {
   withSeatCounts,
 } = require("../services/bookings");
 const { HttpError, parseId } = require("../utils/http");
+const {
+  MAX_IMAGE_BYTES,
+  IMAGE_TYPES,
+  IMAGE_SELECT,
+  detectImageType,
+  newImageKey,
+  imageUrl,
+  withImageUrl,
+} = require("../services/eventImages");
 const audit = require("../services/audit");
 
 const router = express.Router();
+
+// Cover images arrive as the raw file (no multipart wrapper, so no extra dependency) —
+// only for these routes, and only for real image content types.
+const imageBody = express.raw({ type: IMAGE_TYPES, limit: MAX_IMAGE_BYTES });
 
 const EVENT_STATUSES = ["DRAFT", "PUBLISHED", "CANCELLED"];
 const MAX_SUPPLY_QUANTITY = 100000;
@@ -68,10 +81,10 @@ router.get(
     const events = await prisma.event.findMany({
       where,
       // Organizers see the supply order they attached; the public browse view doesn't need it.
-      include: { venue: true, ...(req.query.mine === "true" && { preorder: true }) },
+      include: { venue: true, image: IMAGE_SELECT, ...(req.query.mine === "true" && { preorder: true }) },
       orderBy: { startsAt: "asc" },
     });
-    res.json(await withSeatCounts(events));
+    res.json((await withSeatCounts(events)).map(withImageUrl));
   })
 );
 
@@ -81,14 +94,39 @@ router.get(
   asyncHandler(async (req, res) => {
     const event = await prisma.event.findUnique({
       where: { id: parseId(req.params.id) },
-      include: { venue: true },
+      include: { venue: true, image: IMAGE_SELECT },
     });
     // Drafts are only visible to their organizer and Admins — same 404 as a missing
     // event, so a draft's existence doesn't leak.
     if (!event || (event.status === "DRAFT" && !isOwnerOrAdmin(req, event))) {
       return res.status(404).json({ error: "Event not found" });
     }
-    res.json(event);
+    res.json(withImageUrl(event));
+  })
+);
+
+// The only endpoint in the app that isn't behind a token: an <img> tag can't send an
+// Authorization header. The unguessable key in the URL is what stands in for one — it's
+// handed out with the event itself, which is already hidden from people who shouldn't
+// see it (a draft is only ever returned to its organizer and Admins).
+router.get(
+  "/:id/image/:key",
+  asyncHandler(async (req, res) => {
+    const image = await prisma.eventImage.findUnique({ where: { key: String(req.params.key) } });
+    if (!image || image.eventId !== parseId(req.params.id)) {
+      return res.status(404).json({ error: "Image not found" });
+    }
+    res.set("Content-Type", image.mimeType);
+    // Safe to cache forever: replacing the image mints a new key, so the URL changes with it.
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    // Overrides helmet's global same-origin default. This URL is deliberately public —
+    // the key in it is what grants access — and same-origin would block the image in
+    // `npm run dev` and the e2e build, where the API isn't the page's own origin.
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    // Prisma hands `Bytes` back as a Uint8Array, and res.send() would JSON-encode that
+    // into an array of numbers — served under an image content type, so it just looks
+    // like a corrupt file. Buffer.from() is what makes it a binary response.
+    res.send(Buffer.from(image.bytes));
   })
 );
 
@@ -284,6 +322,67 @@ router.patch(
       });
     }
     res.json(updated.result);
+  })
+);
+
+// The raw file is the whole request body — `Content-Type: image/jpeg`, no form wrapper.
+router.post(
+  "/:id/image",
+  requireAuth,
+  requireRole("ORGANIZER", "ADMIN"),
+  imageBody,
+  asyncHandler(async (req, res) => {
+    const id = parseId(req.params.id);
+    const event = await prisma.event.findUnique({ where: { id } });
+    if (!event) return res.status(404).json({ error: "Event not found" });
+    if (!isOwnerOrAdmin(req, event)) {
+      return res.status(403).json({ error: "You can only manage your own events" });
+    }
+
+    const mimeType = detectImageType(req.body);
+    if (!mimeType) {
+      return res.status(400).json({ error: "That file isn't a JPEG, PNG or WebP image" });
+    }
+
+    const key = newImageKey();
+    await prisma.eventImage.upsert({
+      where: { eventId: id },
+      create: { eventId: id, key, mimeType, bytes: req.body },
+      update: { key, mimeType, bytes: req.body },
+    });
+    await audit.record(req.user, {
+      action: "event.image_updated",
+      entityType: "event",
+      entityId: id,
+      summary: `Set a cover image for "${event.title}"`,
+    });
+    res.status(201).json({ imageUrl: imageUrl(id, key) });
+  })
+);
+
+router.delete(
+  "/:id/image",
+  requireAuth,
+  requireRole("ORGANIZER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const id = parseId(req.params.id);
+    const event = await prisma.event.findUnique({ where: { id } });
+    if (!event) return res.status(404).json({ error: "Event not found" });
+    if (!isOwnerOrAdmin(req, event)) {
+      return res.status(403).json({ error: "You can only manage your own events" });
+    }
+
+    // deleteMany, not delete: removing an image that was never there is a no-op, not a 404.
+    const { count } = await prisma.eventImage.deleteMany({ where: { eventId: id } });
+    if (count) {
+      await audit.record(req.user, {
+        action: "event.image_removed",
+        entityType: "event",
+        entityId: id,
+        summary: `Removed the cover image from "${event.title}"`,
+      });
+    }
+    res.json({ id, imageUrl: null });
   })
 );
 
