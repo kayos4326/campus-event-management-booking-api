@@ -71,7 +71,9 @@ export default function VenueMap({ value, onChange, api, readOnly, height = 280,
       keyboard: !readOnly,
       attributionControl: true,
     })
-    L.tileLayer(TILES, { attribution: ATTRIBUTION, maxZoom: 19 }).addTo(map.current)
+    // OpenStreetMap refuses tile requests with no Referer. Set on the tiles themselves too, so
+    // the map still works wherever the page's own header says otherwise (see security.js).
+    L.tileLayer(TILES, { attribution: ATTRIBUTION, maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map.current)
     if (pinned?.latitude != null) place([pinned.latitude, pinned.longitude])
     if (!readOnly) {
       map.current.on('click', (e) => {

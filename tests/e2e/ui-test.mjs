@@ -31,9 +31,18 @@ const browser = await puppeteer.launch({
 await browser.defaultBrowserContext().overridePermissions('http://127.0.0.1:4173', ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write'])
 const page = (await browser.pages())[0] || (await browser.newPage())
 page.setDefaultTimeout(20000)
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push({ section, text: m.text() }) })
+// A failed-resource message doesn't say which resource, so the URL is added to it.
+page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push({ section, text: m.text(), url: m.location()?.url }) })
 page.on('pageerror', (e) => consoleErrors.push({ section, text: `PAGE ERROR: ${e.message}` }))
 page.on('dialog', async (d) => { consoleErrors.push({ section, text: `unexpected native dialog: ${d.message()}` }); await d.dismiss() })
+// OpenStreetMap answers a tile request it refuses with an "Access blocked" picture — a 200
+// that decodes fine, so "the tile loaded" proves nothing. It's served no-cache, real tiles
+// get a max-age, and that's how a blocked one is told apart.
+const mapTiles = []
+page.on('response', (r) => {
+  if (!r.url().includes('tile.openstreetmap.org')) return
+  mapTiles.push({ section, referer: r.request().headers().referer || null, blocked: /no-cache/.test(r.headers()['cache-control'] || '') })
+})
 
 // ---------------------------------------------------------------------------- helpers
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -633,6 +642,12 @@ const unexpected = consoleErrors.filter((e) => !isExpected4xx(e))
 check('no unexpected console errors or page errors anywhere', unexpected.length === 0, unexpected.slice(0, 10))
 const expected = consoleErrors.filter((e) => e.section.includes('expected 401'))
 console.log(`  (${expected.length} expected 401 console messages in the unknown-account test)`)
+
+section = 'map tiles'
+check('the maps loaded OpenStreetMap tiles at all', mapTiles.length > 0, mapTiles.length)
+check('every tile request carried a Referer (OSM refuses them otherwise)', mapTiles.every((t) => t.referer), mapTiles.filter((t) => !t.referer).slice(0, 3))
+check("OSM sent real tiles, never its 'Access blocked' image", mapTiles.every((t) => !t.blocked), mapTiles.filter((t) => t.blocked).slice(0, 3))
+console.log(`  (${mapTiles.length} tiles checked)`)
 
 await browser.close()
 const failed = results.filter((r) => !r.ok)

@@ -40,9 +40,16 @@ const cspDirectives = {
   formAction: ["'self'"],
 };
 
+// helmet's default is "no-referrer", and OpenStreetMap blocks tile requests that carry no
+// Referer — it answers with an "Access blocked" picture instead of the map (a 200, so
+// nothing looks broken in the network tab). This sends other sites our origin only, never
+// a path or query, and nothing at all over plain HTTP. It's also the browser's own default.
+const REFERRER_POLICY = "strict-origin-when-cross-origin";
+
 const securityHeaders = helmet({
   contentSecurityPolicy: { directives: cspDirectives },
   crossOriginEmbedderPolicy: false, // would block the map tiles
+  referrerPolicy: { policy: REFERRER_POLICY },
 });
 
 // Rate limits are per signed-in user (or per API key), falling back to the client IP for
@@ -77,4 +84,4 @@ const writeLimiter = () => {
   return (req, res, next) => (req.method === "GET" ? next() : limit(req, res, next));
 };
 
-module.exports = { corsPolicy, securityHeaders, readLimiter, writeLimiter, allowedOrigins, cspDirectives };
+module.exports = { corsPolicy, securityHeaders, readLimiter, writeLimiter, allowedOrigins, cspDirectives, REFERRER_POLICY };

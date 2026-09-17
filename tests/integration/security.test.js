@@ -12,6 +12,15 @@ const SITE = "https://chaotic-hell.eastasia.cloudapp.azure.com";
 
 beforeEach(() => resetMocks());
 
+describe("referrer policy", () => {
+  test("other sites get our origin — OpenStreetMap blocks map tiles that arrive without one", async () => {
+    const res = await request(app).get("/health");
+
+    // helmet's default, "no-referrer", is what got the live maps blocked (2026-09-17).
+    expect(res.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+  });
+});
+
 describe("browser origins", () => {
   test("our own site is allowed", async () => {
     setUser({ id: 1, role: "STUDENT" });

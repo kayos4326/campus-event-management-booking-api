@@ -13,7 +13,7 @@ process.env.VITE_API_BASE ||= 'http://127.0.0.1:3998/events/api'
 // catches anything the policy would block (map tiles, fonts, the API). The only change is
 // allowing the tunnelled test API, which in production is the same origin as the app.
 const { createRequire } = await import('node:module')
-const { cspDirectives } = createRequire(import.meta.url)('../../src/middleware/security.js')
+const { cspDirectives, REFERRER_POLICY } = createRequire(import.meta.url)('../../src/middleware/security.js')
 const kebab = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 const policy = Object.entries(cspDirectives)
   .map(([name, values]) => {
@@ -32,7 +32,9 @@ const config = {
   plugins: [react()],
   resolve: { alias: [{ find: '@azure/msal-react', replacement: `${here}msal-react-mock.js` }] },
   build: { outDir: `${here}dist`, emptyOutDir: true },
-  preview: { port: 4173, strictPort: true, host: '127.0.0.1', headers: { 'Content-Security-Policy': policy } },
+  // The referrer policy too: without it this build sent a Referer that production didn't,
+  // and OpenStreetMap blocked the live maps while every test here passed.
+  preview: { port: 4173, strictPort: true, host: '127.0.0.1', headers: { 'Content-Security-Policy': policy, 'Referrer-Policy': REFERRER_POLICY } },
 }
 
 await build(config)
