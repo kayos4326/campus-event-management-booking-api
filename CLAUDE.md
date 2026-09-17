@@ -130,9 +130,13 @@ The school does **not** issue AD or Key Vault credentials for the capstone proje
   - `TENANT_ID`/`CLIENT_ID` updated in `.env.example` to the AU values
   - **Added 2026-09-10** (needed to test with a real token — see the new subsection below): public client (device code) flow enabled; an exposed API scope `access_as_user` plus self-referencing `requiredResourceAccess`; `requestedAccessTokenVersion: 2` forced (was silently defaulting to v1.0 tokens, which would have broken every real login — see below)
   - **Also added 2026-09-10** (for the browser frontend — see §9): a "Single-page application" platform with redirect URIs for both production and local dev
-  - **Not yet done**: no client secret (still not needed — JWT/JWKS validation, no confidential-client flow yet); no redirect URI (no frontend exists yet)
+  - **Not needed**: no client secret (JWT/JWKS validation, no confidential-client flow). Redirect URIs *were* added 2026-09-10 with the frontend — see §9
 - ✅ **Role assignment 2026-09-09**: `u6642062@au.edu` → **all three** app roles (`Admin`, `Organizer`, `Student`) on the AU-tenant `campus-event-api`. `src/middleware/auth.js`'s role-priority resolution (`ADMIN` > `ORGANIZER` > `STUDENT`) means this account resolves to `ADMIN` in practice.
 - ✅ **Role assignment 2026-09-10**: `u6726113@au.edu` (Honey Linn) confirmed to exist in AU's tenant (object id `27486aab-ce5f-4c1b-bb32-85e750f4572d`) → assigned `Organizer` and `Admin`. Same priority resolution means she'll also resolve to `ADMIN` on first login (role is set once at account creation — see below — so this is what her local `User` row gets from the start, not something that needs changing later).
+- ⚠️ **What the database actually says, checked 2026-09-17** (the app's role lives in the `users` table, not in Entra — see below), which doesn't match the expectation above:
+  - `u6642062@au.edu` Thar Lin Htet → `ADMIN`
+  - `u6726113@au.edu` Honey Linn → `STUDENT`. First signed in 2026-09-16 and was `ORGANIZER` — not `ADMIN` as expected above; why wasn't investigated. The audit log shows **Thar changed her to `STUDENT` through the Admin panel on 2026-09-17 at 05:10 UTC**. If that wasn't meant to be permanent, change it back from the Admin panel.
+  - `u6726115@au.edu` Mi Hsu Myat Win Wyint → `ORGANIZER`, first signed in 2026-09-16. Mi Hsu's Entra role assignment was never recorded here.
 - **Key Vault stays on KMUTT** (§ above) — that's purely about who's paying for the VM/vault compute, and is unrelated to the auth tenant. No change needed there; `khinezar.chi1@kmutt.ac.th`'s Key Vault Secrets Officer role and the VM's managed identity are unaffected by the auth tenant switch.
 - ⚠️ **Also briefly attempted, then reverted**: switched auth to the labs' homegrown pattern (bcrypt + self-issued JWT + custom `users` table) to match what's actually *taught*, before realizing the submitted proposal explicitly commits to Entra ID/OIDC — reverted before committing. The proposal is authoritative over what the labs teach; see the note at the top of this file.
 - `src/middleware/auth.js`'s `requireAuth` upserts a local `User` row on first sign-in, keyed by the token's `oid` claim (`adObjectId`). Role is set from the token's `roles` claim **only at creation** — an existing user's role is never overwritten on later logins, since Admins manage roles through `/events/api/admin/users/:id/role` and Entra App Role assignment shouldn't silently clobber that.
@@ -212,7 +216,7 @@ needs re-confirming with the instructor.
 Every team must both expose an endpoint and consume a partner's endpoint.~~ **Dropped.**
 
 ### Consume: Discord webhook (was: Merch team's API)
-- Purpose unchanged: auto-notify that 50 blank lanyards are needed when a large-conference event is created — `src/services/merch.js` (filename kept — same business feature, different fulfillment mechanism; `MerchPreorder` DB model also kept as-is, just repurposed)
+- Purpose: post a supply order to Discord for an event (originally a fixed 50 blank lanyards for a large-conference event; organizer-chosen item and amount since 2026-09-16 — see below) — `src/services/merch.js` (filename kept — same business feature, different fulfillment mechanism; `MerchPreorder` DB model also kept as-is, just repurposed)
 - **Chosen because**: free, no signup friction beyond what most students already have (a Discord account/server), and — unlike a pure lookup API (e.g. Geoapify) — a webhook POST is a genuine *action* with a trackable response, structurally analogous to what "placing an order" was supposed to demonstrate
 - Mechanics: `POST {DISCORD_WEBHOOK_URL}?wait=true` with `{content: "..."}` — `?wait=true` makes Discord return the created message object (with its `id`) instead of a bare 204, so we have something real to store
 - Auth: the webhook URL itself functions as the credential (anyone with it can post) — stored in Key Vault as `discord-webhook-url`. **Obtained and wired up 2026-09-10** (a new "CSX4110 Project" Discord server + channel, incoming webhook added). Verified end-to-end: created a throwaway large-conference test event directly against the deployed app, called `preorderLanyards()`, got back `status: "CONFIRMED"` with a real Discord message id as `peerOrderRef`, then cleaned up the test data.
@@ -273,7 +277,7 @@ These aren't part of this repo, but are proven approaches worth mirroring:
   - Generated on the VM itself via a throwaway bootstrap (`package.json` + `prisma/schema.prisma` copied over, `npm install`, `npx prisma migrate dev`, migration copied back into the repo, bootstrap dir deleted) — avoided opening MySQL port 3306 publicly (unlike the Week 4 lab's local-dev pattern), since the app doesn't need remote DB access in this Zero-Trust design
   - Needed a temporary, narrowly-scoped grant (`` `prisma_migrate_shadow_db_%`.* ``) for `migrate dev`'s shadow database, **revoked immediately after** — `campus_events_user` now only has privileges on `campus_events` itself
   - `database-url` Key Vault secret populated: `mysql://campus_events_user:<password>@127.0.0.1:3306/campus_events`
-- [x] Populate the `database-url` Key Vault secret — done above. `geoapify-api-key` and `merch-peer-api-key` still not populated (real values don't exist yet — see next two items)
+- [x] Populate the `database-url` Key Vault secret — done above. `geoapify-api-key` was populated 2026-09-09 and `discord-webhook-url` 2026-09-10; `merch-peer-api-key` was never needed once the peer API was dropped (§5)
 - [x] HelpDesk vs. "Ticketing" naming mismatch → **moot**, dropped 2026-09-10 — the exposed endpoint is no longer scoped to any specific team (§5)
 - [x] **Full flow tested end-to-end with a real Entra token, 2026-09-10** — see the new subsection at the end of §4. Found and fixed 5 more real bugs beyond the ones already listed here (a critical v1.0-vs-v2.0 token mismatch that would have blocked every real login, a Prisma column-length error, a systemic Express-4 async-error-hanging issue across every route, a falsy-value validation bug, and an unhandled duplicate-booking error). This is the first time the actual HTTP request → auth → business logic → DB path was exercised for real, rather than in pieces.
 - [x] Whether "Admin" is a real day-to-day role → **decided 2026-09-10: real**, not just a demo/grading convenience. `u6642062@au.edu` continues to hold it day-to-day.
@@ -281,7 +285,7 @@ These aren't part of this repo, but are proven approaches worth mirroring:
 - [x] **Booking/event business-logic review, 2026-09-15** — the architecture was solid but a code read turned up gaps a grader clicking around would hit. All fixed (89 tests now; 28 of the new/updated ones fail against the pre-fix routes):
   1. **Bug: a student who cancelled could never book that event again.** Cancel only sets `CANCELLED`, the row stays, and `@@unique([eventId, studentId])` made rebooking a `409`. Rebooking now reuses the cancelled row (and resets `createdAt`, which is the waitlist queue position, so rebooking goes to the back of the line).
   2. **The waitlist never moved.** Cancelling a `CONFIRMED` booking now promotes the oldest `WAITLISTED` one. Raising capacity (or re-publishing a draft) fills open seats the same way. Lowering capacity below the confirmed count is rejected with `409` — a confirmed student is never bumped back to the waitlist.
-  3. **Last-seat race.** Booking was count-then-insert with no transaction, so two simultaneous RSVPs could both get the last seat. Every seat-changing operation now runs in a `READ COMMITTED` transaction that first takes `SELECT ... FOR UPDATE` on the event row (`src/services/bookings.js`). ⚠️ Only verified with mocks so far — see the deploy note below.
+  3. **Last-seat race.** Booking was count-then-insert with no transaction, so two simultaneous RSVPs could both get the last seat. Every seat-changing operation now runs in a `READ COMMITTED` transaction that first takes `SELECT ... FOR UPDATE` on the event row (`src/services/bookings.js`). Proven on the live database 2026-09-15: the pre-fix code double-booked, this code never did — see the live E2E entry below.
   4. **Input validation**: event dates must be real dates with `endsAt > startsAt`; `venueId` must exist; `status` must be a valid enum value; `PATCH` now validates `capacity`/`status`/`title` too (it validated nothing before). Non-numeric ids, malformed JSON bodies, and Prisma `P2025` (record not found) now return `404`/`400` instead of a generic `500` (`src/utils/http.js` — `HttpError` + `parseId`, mapped in `app.js`'s error handler).
   5. **Draft leak**: `GET /events/:id` returned `DRAFT` events to any logged-in user — now `404` unless you're the organizer or an Admin.
   6. **Cancelling an event left its bookings `CONFIRMED`** — `DELETE` (and `PATCH status: CANCELLED`) now cancels all active bookings in the same transaction.
@@ -302,7 +306,7 @@ These aren't part of this repo, but are proven approaches worth mirroring:
     6. The one-time API key overflowed its box (a grid track sizing issue). It now wraps, with Copy below on phones.
     7. On phones the 4 stat cards stacked into one tall column. They're now a compact 2×2 grid.
     8. API error messages leaked field names and lowercase text (`endsAt must be after startsAt`, `capacity can't be lower…`). They're now human-readable ("The event must end after it starts").
-  - Noticed, not changed: the VM's SSH log shows constant bot login attempts (`invalid user …`) and `fail2ban` is not running. That likely explains the two brief "connection refused" SSH failures during deploys.
+  - Noticed at the time: the VM's SSH log showed constant bot login attempts (`invalid user …`) and `fail2ban` was not running. **Installed 2026-09-16** — see §3.
 
 ---
 
@@ -316,7 +320,7 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 - `vite.config.js` sets `base: '/events/'` — required since the build is served from under that path, not domain root
 - `src/app.js` serves `frontend-ui/dist` as static files, mounted **after** all `/events/api/*` routes so the API is never shadowed by the frontend catch-all
 - `deploy.sh` now builds the frontend (`npm run build` in `frontend-ui/`) as its first step and ships `dist/` alongside the backend — `dist/` itself is gitignored (lab convention: built fresh at deploy time, not committed)
-- Added `cors` middleware (`app.use(cors())`, no origin restriction) so `npm run dev` on `localhost:5173` can call the deployed API directly — `frontend-ui/.env.development` points local dev at the live backend, since there's no separate local backend+DB to run against
+- Added `cors` middleware so `npm run dev` on `localhost:5173` can call the deployed API directly (open to every origin at first; **narrowed to an allow-list 2026-09-16**, see §4) — `frontend-ui/.env.development` points local dev at the live backend, since there's no separate local backend+DB to run against
 - Added `GET /events/api/me` (`src/routes/me.js`) so the frontend can learn the logged-in user's **DB-authoritative** role (not the token's `roles` claim, which isn't updated after Admin-managed role changes — see §4) — `req.user` in `requireAuth` now also carries `email`/`displayName` from the DB row, not raw token claims
 - Added `GET /events/api/events?mine=true` (in `src/routes/events.js`) so an Organizer can see their own events including drafts — the original proposal only specified the public PUBLISHED-only browse view and admin's see-everything view; there was no "my own events" endpoint until the frontend needed one
 
@@ -329,7 +333,7 @@ setup. Live at `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`.
 **UI redesign, 2026-09-15** (the first version was plain forms and lists — "so basic"):
 - Design system in `src/index.css`: CSS-variable tokens with automatic dark mode (`prefers-color-scheme`), Bricolage Grotesque headings + Inter body (Google Fonts, system-font fallback), ink-black primary buttons with one tangerine accent, semantic colors for booking statuses. Icons from `lucide-react` (the only new dependency). No CSS framework.
 - Shared components in `src/components/ui.jsx` (native `<dialog>` modal + confirm dialog, toasts, status/role pills, capacity bar, date badge, segmented control, empty states); formatting helpers in `src/lib/format.js` (also tidies AU directory names like `"THAR LIN HTET -"` → `"Thar Lin Htet"`).
-- Pages: split-screen sign-in; **Discover** (search, upcoming/all filter, event cards with the venue's Geoapify map, capacity bar, and the student's own booking state on each card); **My bookings** as ticket cards (upcoming/past/cancelled, one-click "Book again"); **My events** dashboard (stats, status filter, create/edit/publish/cancel dialogs, attendee list, venue gallery); **Admin** (stats, people/events/bookings tables, API-key issuing with copy + example request). All `window.confirm` calls replaced with in-app dialogs.
+- Pages: split-screen sign-in; **Discover** (search, upcoming/all filter, event cards with the venue's Geoapify map (since replaced by a Directions link and the organizer's cover image — see below), capacity bar, and the student's own booking state on each card); **My bookings** as ticket cards (upcoming/past/cancelled, one-click "Book again"); **My events** dashboard (stats, status filter, create/edit/publish/cancel dialogs, attendee list, venue gallery); **Admin** (stats, people/events/bookings tables, API-key issuing with copy + example request). All `window.confirm` calls replaced with in-app dialogs.
 - Features the old UI was missing: publishing a draft, editing an event, rebooking from My bookings.
 - Backend support: `GET /events` (both views) and `/admin/events` now include `seats: { confirmed, waitlisted }` (one `groupBy` query, `withSeatCounts` in `src/services/bookings.js`) and are sorted by date; `/bookings/mine` includes the venue.
 - Checked with headless-Chrome screenshots of every screen (mocked API + MSAL, preview files deleted afterward) at desktop width and at a true 390px phone width (via an iframe, since headless Chrome's minimum window is 500px) — no horizontal overflow on any screen.
@@ -367,3 +371,38 @@ one student must not end up using another's account):
 **Verified working end-to-end in a real browser**: login → redirect through Microsoft
 → back to the app → `/me` resolves the correct role → role-appropriate tabs render →
 Admin panel loads real (empty, post-cleanup) data correctly.
+
+---
+
+## 10. Course requirements checklist (teacher's written brief, pasted 2026-09-16)
+
+The teacher's "Core Requirements to hit Course Objectives", and where this project stands:
+
+| # | Requirement (short) | Status |
+|---|---|---|
+| 1 | Hardened Linux VPS | ✅ Azure `bad-vps-01`: key-only SSH, ufw, unattended-upgrades, fail2ban (§3) |
+| 2 | Nginx reverse proxy + Let's Encrypt, own URL path, `/content` and `/api` unbroken | ✅ `/events` (§3) |
+| 3 | Node.js (Express) or Go REST API | ✅ Express |
+| 4 | MySQL/PostgreSQL via Prisma with migrations | ✅ MySQL, 6 migrations in `prisma/migrations` |
+| 5 | JWT auth + RBAC, University Microsoft AD via MSAL/OAuth2/OIDC | ✅ Entra ID (AU tenant) issues RS256 JWTs; `src/middleware/auth.js` verifies them against Microsoft's public keys; roles ADMIN/ORGANIZER/STUDENT (§4) |
+| 6 | No production secrets in `.env`; fetch them from the **Class** Azure Key Vault ("credentials will be provided") | ⚠️ Secrets are fetched at runtime from Key Vault, but **our own** vault (`campus-event-api-kv`, §4) — class credentials were never provided. There is no JWT secret to store, because Microsoft signs the tokens and the app only verifies them. |
+| 7 | At least one external public API / AI service | ✅ Geoapify (§9) |
+| 8 | Peer API with a classmate team: expose an `x-api-key` endpoint **and** consume theirs | ⚠️ Expose ✅ (room-status API, §5). Consume is the **Discord webhook**, not a classmate's API — on a verbal instruction from the teacher (2026-09-10, §5), which contradicts this written rule. |
+| 9 | Code in a GitHub repository | ❌ Not yet: 32 commits locally, no remote (§11) |
+| 10 | Automated deployment script or Docker Compose | ✅ Both: `deploy.sh` for production, `docker-compose.yml` for local (§3) |
+
+**Decided 2026-09-16 — don't reopen without Thar:** the two ⚠️ rows were raised as risks (switch to the
+class vault if credentials arrive; get the Discord substitution confirmed in writing, or pair with a team
+to consume a real peer API). Thar's answer was **"forget these two"**, so neither is being pursued.
+
+---
+
+## 11. Still to do (as of 2026-09-17)
+
+- **GitHub** (requirement 9). Needs from Thar: a repo name, private or public, and Honey's and Mi Hsu's GitHub usernames to add as collaborators. The plan is for each teammate to push their own genuine remaining work from their own laptop, not to rewrite history to fake authorship.
+- **README.md** — none exists; teammates need setup steps (`npm install`, `docker compose up --build`, `npm test`).
+- **`docs/proposal.md` is out of date** in several places: Mapbox/static map links (now a pin on a map), a fixed 50 lanyards (now organizer-chosen), the Merch team's peer API (now Discord), a JWT signing secret and peer API keys stored in Key Vault (neither exists). It's the submitted document, so decide whether to amend it or explain the changes in the report.
+- **Report / demo**: write-up, deployment diagram if asked for, a demo script and a rehearsal.
+- **Thar, by hand**: delete the `[E2E]` test messages in the Discord channel (Claude doesn't delete messages), and restrict the Geoapify key to this site in the Geoapify dashboard.
+- **Honey's role** — see §4: currently `STUDENT`.
+- Known gaps, not planned: a venue can't be edited after creation; an event's venue and supply order can't be changed after creation; the Admin Activity tab shows the latest 100 entries with no "load more"; the frontend bundle is ~740 KB (Vite warns above 500 KB).
