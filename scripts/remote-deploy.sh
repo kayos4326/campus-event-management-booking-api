@@ -73,7 +73,9 @@ smoke_test() {
 # checks it before any user is sent to it. Catches a release that crashes on start, is
 # missing a dependency, or can't read its secrets — while the old release keeps serving.
 preflight() {
-  local dir="$1" id="$2" log="$SHARED/logs/$id-preflight.log" pid ok=0
+  # Two `local`s: in one, $id in log= would expand before id is set (ShellCheck SC2318).
+  local dir="$1" id="$2" pid ok=0
+  local log="$SHARED/logs/$id-preflight.log"
   if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PREFLIGHT_PORT/"; then
     fail "Port $PREFLIGHT_PORT is already in use, so the pre-flight check can't run. Free it, or set PREFLIGHT_PORT."
   fi
@@ -105,6 +107,7 @@ preflight() {
 # Migration folders in this release that the database hasn't applied yet.
 pending_migrations() {
   local dir="$1"
+  # shellcheck disable=SC2016 # JavaScript, not shell: nothing in it should expand
   (cd "$dir" && node -e '
     const fs = require("fs");
     const { PrismaClient } = require("@prisma/client");
@@ -119,10 +122,12 @@ pending_migrations() {
 # A full dump before anything changes the schema. Credentials go in a private temp file,
 # not on the command line.
 backup_database() {
-  local id="$1" file="$SHARED/backups/$id-before-migrate.sql.gz" cnf db
+  local id="$1" cnf db
+  local file="$SHARED/backups/$id-before-migrate.sql.gz"
   mkdir -p "$SHARED/backups"
   cnf="$(mktemp)"
   chmod 600 "$cnf"
+  # shellcheck disable=SC2016 # JavaScript, not shell: nothing in it should expand
   db="$(node -e '
     const u = new URL(process.env.DATABASE_URL);
     const esc = (s) => decodeURIComponent(s).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
@@ -136,6 +141,7 @@ backup_database() {
   fi
   rm -f "$cnf"
   # Keep the last 10 backups.
+  # shellcheck disable=SC2012 # our own file names, no spaces or newlines
   ls -1t "$SHARED"/backups/*.sql.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
 }
 
@@ -321,6 +327,7 @@ cmd_releases() {
   local current
   current="$(current_release)"
   echo "Releases in $RELEASES (newest first):"
+  # shellcheck disable=SC2012 # our own release names, no spaces or newlines
   ls -1dt "$RELEASES"/*/ 2>/dev/null | while read -r dir; do
     local id
     id="$(basename "$dir")"

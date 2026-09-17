@@ -9,7 +9,7 @@
 #
 # LEGACY_COMMIT is the code the server ran before; the default is what production ran.
 set -uo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 REPO="$PWD"
 
 LEGACY_COMMIT="${LEGACY_COMMIT:-06c45a5}"
@@ -70,6 +70,7 @@ for _ in $(seq 1 60); do vm true 2>/dev/null && break; sleep 1; done
 for _ in $(seq 1 90); do docker exec "$DB" mysql -h127.0.0.1 -uroot -proot -e 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
 # The image's MYSQL_PASSWORD goes into SQL unescaped, which would eat the backslash — so the
 # user is created here, with only the privileges production's app user has.
+# shellcheck disable=SC2016 # JavaScript, not shell
 node -e 'const q = (s) => "\x27" + s.replace(/\\/g, "\\\\").replace(/\x27/g, "\\\x27") + "\x27"; console.log(`CREATE USER \x27campus\x27@\x27%\x27 IDENTIFIED BY ${q(process.argv[1])}; GRANT ALL PRIVILEGES ON campus_events.* TO \x27campus\x27@\x27%\x27;`)' "$DB_PASSWORD" \
   | docker exec -i "$DB" mysql -h127.0.0.1 -uroot -proot 2>/dev/null || { echo "creating the database user failed"; exit 1; }
 echo "   fake VM and MySQL are up"
@@ -89,7 +90,9 @@ CLIENT_ID=00000000-0000-0000-0000-000000000000
 DATABASE_URL=$DB_URL
 GEOAPIFY_API_KEY=not-used
 EOF
-COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf "$WORK/legacy.tgz" -C "$WORK/legacy" .
+TAR_FLAGS=()
+if tar --version 2>/dev/null | grep -q bsdtar; then TAR_FLAGS=(--no-mac-metadata --no-xattrs); fi # macOS only
+COPYFILE_DISABLE=1 tar ${TAR_FLAGS[@]+"${TAR_FLAGS[@]}"} -czf "$WORK/legacy.tgz" -C "$WORK/legacy" .
 docker cp "$WORK/legacy.tgz" "$VM:/tmp/legacy.tgz"
 docker exec "$VM" bash -c 'mkdir -p /home/azureuser/campus-event-api && tar -xzf /tmp/legacy.tgz -C /home/azureuser/campus-event-api && chown -R azureuser:azureuser /home/azureuser/campus-event-api'
 vm "cd ~/campus-event-api && npm install --no-audit --no-fund --loglevel=error >/dev/null && npx prisma generate >/dev/null \
@@ -104,6 +107,7 @@ heading "First release-based deploy (adopts the old layout, runs a migration)"
 vm 'nohup bash -c "while true; do curl -s -o /dev/null -w \"%{http_code}\n\" --max-time 1 http://127.0.0.1:3001/events/api/me; sleep 0.1; done" >/tmp/probe.log 2>&1 </dev/null & echo $! >/tmp/probe.pid'
 run_deploy "$REPO" "$WORK/deploy1.log"
 status=$?
+# shellcheck disable=SC2016 # expands on the VM, not here
 vm 'kill $(cat /tmp/probe.pid)'
 FIRST="$(release_of "$WORK/deploy1.log")"
 check "deploy succeeds" equals "$status" 0

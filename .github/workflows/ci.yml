@@ -1,0 +1,134 @@
+# Runs on every push and pull request. Nothing here needs a secret: Entra, Key Vault,
+# Geoapify and Discord are either mocked or replaced by local fakes, and the database is a
+# throwaway MySQL container. Deploying stays a manual step (./deploy.sh).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API tests (Node 18, as on the VM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.19.1
+          cache: npm
+      - run: npm ci
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npm test
+
+  database:
+    name: Migrations, outbox and images on MySQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: campus_events
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/campus_events
+      APP_DIR: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.19.1
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Every migration applies to an empty database
+        run: npx prisma migrate deploy
+
+      # The migrations are hand-written, so check they build exactly the schema in
+      # schema.prisma — a missed column would otherwise only show up in production.
+      - name: The migrations match schema.prisma
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "CREATE DATABASE shadow"
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url mysql://root:root@127.0.0.1:3306/shadow \
+            --exit-code
+
+      - name: Test users
+        run: node tests/e2e/db.cjs setup
+
+      - name: Supply-order outbox (fake Discord, real app processes)
+        env:
+          MYSQL: mysql -h127.0.0.1 -uroot -proot campus_events
+        run: node tests/e2e/outbox-test.mjs
+
+      - name: Cover images
+        env:
+          PORT: "3998"
+          RATE_LIMIT_WRITES: "100000"
+          RATE_LIMIT_REQUESTS: "100000"
+          GEOAPIFY_API_KEY: not-used
+        run: |
+          node tests/e2e/server.cjs > server.log 2>&1 &
+          for _ in $(seq 1 30); do curl -fs http://127.0.0.1:3998/health > /dev/null && break; sleep 1; done
+          node tests/e2e/image-test.mjs
+
+      - name: Server log
+        if: failure()
+        run: cat server.log || true
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # Vite 8 needs Node 20.19+; the VM never builds the frontend
+          cache: npm
+          cache-dependency-path: frontend-ui/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  scripts:
+    name: Deploy scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n deploy.sh && bash -n scripts/remote-deploy.sh && bash -n tests/deploy/test-deploy.sh
+      - run: shellcheck deploy.sh scripts/remote-deploy.sh tests/deploy/test-deploy.sh
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag campus-event-api:ci .
