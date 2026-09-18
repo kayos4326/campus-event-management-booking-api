@@ -59,9 +59,9 @@ npm install
 npm run dev
 ```
 
-This talks to the live API. Signing in from `localhost` only works if
-`http://localhost:5173/events/` is registered as a redirect URI on the Entra app — Thar
-manages that registration.
+This talks to the live API, so you see real data — but you can't sign in from `localhost`:
+that address isn't registered with Microsoft (see below). Thar can add it to the Entra app
+registration if local sign-in is needed.
 
 End-to-end tests (real MySQL, real Chrome, a fake Discord) are described in
 [tests/e2e/README.md](tests/e2e/README.md).
