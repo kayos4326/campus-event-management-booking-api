@@ -9,3 +9,10 @@ tests/e2e/chrome-profile*/
 tests/e2e/node_modules/
 # Written into each release directory by deploy.sh
 /RELEASE
+
+# Kept on the developer's machine, deliberately not in the repository: the repo
+# holds what is needed to build, run and deploy the app.
+docs/
+tests/
+jest.config.js
+CLAUDE.md

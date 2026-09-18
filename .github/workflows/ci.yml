@@ -1,6 +1,8 @@
-# Runs on every push and pull request. Nothing here needs a secret: Entra, Key Vault,
-# Geoapify and Discord are either mocked or replaced by local fakes, and the database is a
-# throwaway MySQL container. Deploying stays a manual step (./deploy.sh).
+# Runs on every push and pull request. Nothing here needs a secret. It checks that the app
+# installs and generates its Prisma client, that every migration applies to an empty MySQL
+# and matches schema.prisma, that the frontend lints and builds, that the deploy scripts
+# parse and pass ShellCheck, and that the Docker image builds. Deploying stays a manual
+# step (./deploy.sh). The test suites live outside this repository.
 name: CI
 
 on:
@@ -18,7 +20,7 @@ permissions:
 
 jobs:
   api:
-    name: API tests (Node 18, as on the VM)
+    name: API build (Node 18, as on the VM)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # `prisma validate` resolves env("DATABASE_URL") out of schema.prisma before it will
@@ -36,10 +38,9 @@ jobs:
       - run: npm ci
       - run: npx prisma validate
       - run: npx prisma generate
-      - run: npm test
 
   database:
-    name: Migrations, outbox and images on MySQL
+    name: Migrations on MySQL
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -81,28 +82,6 @@ jobs:
             --shadow-database-url mysql://root:root@127.0.0.1:3306/shadow \
             --exit-code
 
-      - name: Test users
-        run: node tests/e2e/db.cjs setup
-
-      - name: Supply-order outbox (fake Discord, real app processes)
-        env:
-          MYSQL: mysql -h127.0.0.1 -uroot -proot campus_events
-        run: node tests/e2e/outbox-test.mjs
-
-      - name: Cover images
-        env:
-          PORT: "3998"
-          RATE_LIMIT_WRITES: "100000"
-          RATE_LIMIT_REQUESTS: "100000"
-          GEOAPIFY_API_KEY: not-used
-        run: |
-          node tests/e2e/server.cjs > server.log 2>&1 &
-          for _ in $(seq 1 30); do curl -fs http://127.0.0.1:3998/health > /dev/null && break; sleep 1; done
-          node tests/e2e/image-test.mjs
-
-      - name: Server log
-        if: failure()
-        run: cat server.log || true
 
   frontend:
     name: Frontend lint and build
@@ -128,8 +107,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n deploy.sh && bash -n scripts/remote-deploy.sh && bash -n tests/deploy/test-deploy.sh
-      - run: shellcheck deploy.sh scripts/remote-deploy.sh tests/deploy/test-deploy.sh
+      - run: bash -n deploy.sh && bash -n scripts/remote-deploy.sh
+      - run: shellcheck deploy.sh scripts/remote-deploy.sh
 
   docker:
     name: Docker image builds

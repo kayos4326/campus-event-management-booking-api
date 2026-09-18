@@ -35,13 +35,6 @@ Things worth knowing before you change something:
 
 ## Running it
 
-**Tests** — no database, Microsoft account or internet needed:
-
-```bash
-npm install
-npm test
-```
-
 **The whole stack in Docker** (app + MySQL):
 
 ```bash
@@ -63,20 +56,16 @@ This talks to the live API, so you see real data — but you can't sign in from 
 that address isn't registered with Microsoft (see below). Thar can add it to the Entra app
 registration if local sign-in is needed.
 
-End-to-end tests (real MySQL, real Chrome, a fake Discord) are described in
-[tests/e2e/README.md](tests/e2e/README.md).
-
 ## Running it from a zip (marking, or a teammate with no access)
 
 Everything needed is in the repository — no secrets, no Azure access:
 
 ```bash
-npm install && npm test          # 204 tests, no database or network needed
 docker compose up --build        # the whole stack, then http://localhost:3001/events/
 ```
 
-Both were checked from a fresh unpacked zip: the tests pass, and Docker creates the database,
-applies all seven migrations and serves the app.
+This was checked from a fresh unpacked zip: Docker creates the database, applies all seven
+migrations and serves the app.
 
 **Signing in only works on the live site.** Microsoft only returns people to web addresses
 registered on our Entra app, and only `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`
@@ -106,8 +95,9 @@ unhealthy after the switch, the previous release comes back on its own. Rollback
 only, so migrations must keep working with the release before them (add, don't rename or
 drop). Commit before deploying — the release is named after the commit.
 
-CI (GitHub Actions) runs the tests, applies every migration to an empty MySQL, checks the
-migrations match the schema, lints and builds the frontend, and builds the Docker image.
+CI (GitHub Actions) installs the app and generates its Prisma client, applies every migration
+to an empty MySQL and checks the migrations match the schema, lints and builds the frontend,
+runs ShellCheck over the deploy scripts, and builds the Docker image.
 
 ## Where things are
 
@@ -115,10 +105,8 @@ migrations match the schema, lints and builds the frontend, and builds the Docke
 src/            API: routes/, services/ (bookings, outbox, Discord, images), validation/
 prisma/         schema and migrations
 frontend-ui/    React app
-tests/          unit/ and integration/ (npm test), e2e/, deploy/
 scripts/        the part of the deploy that runs on the VM
-docs/           the submitted proposal
 ```
 
-`CLAUDE.md` holds the detailed project notes: why things are the way they are, what was
-tested and what went wrong along the way.
+The automated test suites, the submitted proposal and the detailed project notes are kept
+outside this repository; this one holds what is needed to build, run and deploy the app.
