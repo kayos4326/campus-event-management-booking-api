@@ -515,7 +515,8 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
   history were scanned for secrets: the only credentials in it are throwaway ones (`root:root`,
   `localdev`) and `<password>` placeholders — no webhook URL, no API key, no private key.
   `honeyyyhl13` (Honey) and `hsumyatwinmyint` (Mi Hsu) were invited as collaborators with write
-  access; **each has to accept the invitation** before she can push. Each teammate does real work and
+  access, and **both accepted the same day** — the repository now lists three collaborators, so each
+  of them can branch and push without anything further from Thar. Each teammate does real work and
   commits it herself — [docs/teamwork.md](docs/teamwork.md) divides what's left and explains how
   GitHub credits authors and co-authors. History is **not** rewritten to fake authorship.
   - **Author email corrected before the first push, 2026-09-19.** Every commit was authored as
