@@ -237,8 +237,16 @@ const apiKeyCreate = body({
 });
 
 const LIMIT_MESSAGE = "limit must be a whole number between 1 and 500";
+const BEFORE_MESSAGE = "before must be the id of an activity entry";
 const auditQuery = z.object({
   limit: z.preprocess(looseNumber, z.number({ error: LIMIT_MESSAGE }).int(LIMIT_MESSAGE).min(1, LIMIT_MESSAGE).max(500, LIMIT_MESSAGE).default(100)),
+  // One page older: the id of the oldest entry already on screen. Ids are handed out in
+  // order, so "older than this one" is the next page — and unlike an offset it can't skip
+  // or repeat a row when something new is written while someone is reading.
+  before: z.preprocess(
+    looseNumber,
+    z.number({ error: BEFORE_MESSAGE }).int(BEFORE_MESSAGE).min(1, BEFORE_MESSAGE).max(MAX_ID, BEFORE_MESSAGE).optional()
+  ),
 });
 
 // ------------------------------------------------------------------------------- peer

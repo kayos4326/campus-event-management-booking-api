@@ -80,13 +80,19 @@ router.get(
 );
 
 // Who changed what, newest first — the answer to "who cancelled this event?".
+// `before` pages backwards: the Activity tab sends the id of the oldest entry it is
+// already showing, and gets the next batch older than it. Sorting by id as well as by
+// time keeps that reliable when several entries share a timestamp — without it, one of
+// them could be skipped or shown twice across a page boundary.
 router.get(
   "/audit",
   validate({ query: schemas.auditQuery }),
   asyncHandler(async (req, res) => {
+    const { limit, before } = req.valid.query;
     const entries = await prisma.auditLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: req.valid.query.limit,
+      ...(before && { where: { id: { lt: before } } }),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit,
     });
     res.json(entries);
   })

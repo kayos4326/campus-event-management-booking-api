@@ -6,6 +6,9 @@ import {
 import { cleanName, errorMessage, formatDate, seatInfo, timeAgo } from '../lib/format'
 
 const ROLES = ['STUDENT', 'ORGANIZER', 'ADMIN']
+// What GET /admin/audit returns per request when no limit is given. A short page means
+// there is nothing older left to ask for.
+const AUDIT_PAGE = 100
 const title = (role) => role[0] + role.slice(1).toLowerCase()
 
 function UsersTable({ users, me, onChangeRole }) {
@@ -95,10 +98,11 @@ function BookingsTable({ bookings }) {
   )
 }
 
-function Activity({ entries }) {
+function Activity({ entries, onLoadMore, loadingMore, allLoaded }) {
   if (entries === null) return <div className="skeleton skeleton-row" style={{ height: 200 }} />
   if (entries.length === 0) return <EmptyState icon={History} title="No activity yet">Changes made by organizers and admins are recorded here.</EmptyState>
   return (
+    <>
     <div className="table-wrap">
       <table className="table">
         <thead><tr><th>What happened</th><th>Who</th><th>When</th></tr></thead>
@@ -113,6 +117,16 @@ function Activity({ entries }) {
         </tbody>
       </table>
     </div>
+    {/* The log only ever showed the newest 100 entries, with no way to reach anything
+        older. Hidden once the last page comes back short, so it can't ask for nothing. */}
+    {!allLoaded && (
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+        <button className="btn" onClick={onLoadMore} disabled={loadingMore}>
+          {loadingMore && <Spinner />} {loadingMore ? 'Loading…' : 'Load older activity'}
+        </button>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -273,6 +287,8 @@ export default function AdminPanel({ api, me }) {
   const [events, setEvents] = useState([])
   const [bookings, setBookings] = useState([])
   const [activity, setActivity] = useState(null)
+  const [activityAllLoaded, setActivityAllLoaded] = useState(false)
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [view, setView] = useState('users')
   const [roleChange, setRoleChange] = useState(null)
@@ -284,7 +300,9 @@ export default function AdminPanel({ api, me }) {
       .catch(() => { setUsers([]); setError('Failed to load admin data — if your role just changed, sign out and back in.') })
     api.get('/admin/events').then((res) => setEvents(res.data)).catch(() => {})
     api.get('/admin/bookings').then((res) => setBookings(res.data)).catch(() => {})
-    api.get('/admin/audit').then((res) => setActivity(res.data)).catch(() => setActivity([]))
+    api.get('/admin/audit')
+      .then((res) => { setActivity(res.data); setActivityAllLoaded(res.data.length < AUDIT_PAGE) })
+      .catch(() => { setActivity([]); setActivityAllLoaded(true) })
   }, [api])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -295,6 +313,22 @@ export default function AdminPanel({ api, me }) {
     events: events.filter((e) => e.status === 'PUBLISHED').length,
     bookings: bookings.filter((b) => b.status !== 'CANCELLED').length,
   }), [users, events, bookings])
+
+  const loadMoreActivity = async () => {
+    if (!activity?.length || activityLoadingMore) return
+    setActivityLoadingMore(true)
+    try {
+      // The list is newest first, so the last row on screen is the oldest one we hold.
+      const oldest = activity[activity.length - 1].id
+      const res = await api.get('/admin/audit', { params: { before: oldest } })
+      setActivity((current) => [...current, ...res.data])
+      if (res.data.length < AUDIT_PAGE) setActivityAllLoaded(true)
+    } catch (err) {
+      toast({ tone: 'danger', title: "Couldn't load older activity", body: errorMessage(err, 'Please try again.') })
+    } finally {
+      setActivityLoadingMore(false)
+    }
+  }
 
   const confirmRoleChange = async () => {
     const { user, role } = roleChange
@@ -351,7 +385,14 @@ export default function AdminPanel({ api, me }) {
           {view === 'users' && <UsersTable users={users} me={me} onChangeRole={(user, role) => setRoleChange({ user, role })} />}
           {view === 'events' && <EventsTable events={events} />}
           {view === 'bookings' && <BookingsTable bookings={bookings} />}
-          {view === 'activity' && <Activity entries={activity} />}
+          {view === 'activity' && (
+            <Activity
+              entries={activity}
+              onLoadMore={loadMoreActivity}
+              loadingMore={activityLoadingMore}
+              allLoaded={activityAllLoaded}
+            />
+          )}
           {view === 'keys' && <ApiKeys api={api} />}
         </>
       )}
