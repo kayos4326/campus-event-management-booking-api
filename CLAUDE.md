@@ -97,6 +97,41 @@ another deploy, and a crash on start meant the site was down until someone notic
 - ✅ **First real deploy 2026-09-17 17:16 UTC** (release `20260917-171608-6bdf478`): adopted the old layout as `legacy-20260917-171615`, backed up (84 KB, taken before `outbox_jobs` existed), applied `20260918090000_outbox_jobs`, pre-flight and live checks passed. A public probe every 0.5s saw 3 × 502 during the switch (~1.5s) and nothing else failing. Then **rolled back to legacy and forward again on production** (`./deploy.sh rollback` twice): both switches passed their checks, 5 × 502 in total. Afterwards: `/content` 301, `/api` 404 (as before), live sign-in redirect check 12/12, no `DATABASE_URL` in PM2's dump.
 - The e2e instructions (`tests/e2e/README.md`) now use `APP_DIR=$HOME/campus-event-api/current`.
 
+### ❗ MySQL is open to the internet (found 2026-09-18, NOT yet fixed)
+
+Found while preparing the demo, and it undercuts requirement #1:
+
+- `ufw` allows **3306 from anywhere** and MySQL binds `0.0.0.0`. Connecting from outside the VM succeeds and the server returns its version banner (8.0.46).
+- `api_user@%` may log in **from any address** and holds `ALL PRIVILEGES ON *.* WITH GRANT OPTION` (plus `SUPER`, `FILE`, `CREATE USER`) — so it reaches `campus_events` and `wordpress`, not just its own `store`. **Its password is six digits.**
+- Checked for abuse: no unexpected accounts, databases or tables, and no access-denied entries. Nothing suggests it has been used, but the exposure is real.
+- The port is open because the lab's own `crud-api` (a different project on the same VM) connects to the **public hostname** instead of `127.0.0.1`, so closing the port without changing that would break it.
+
+**The fix, in this order** (Thar has to run it — editing another project's config, changing MySQL credentials and changing the VM firewall were all refused to this assistant as changes to shared resources):
+
+```bash
+# 1. point the lab API at localhost (it runs on the same machine)
+cd ~/crud-api && cp .env .env.bak
+sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/; s#@chaotic-hell.eastasia.cloudapp.azure.com:3306#@127.0.0.1:3306#' .env
+pm2 restart crud-api && curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/api/products   # expect 200
+
+# 2. close the port to the internet
+sudo ufw delete allow 3306
+nc -z -w 5 chaotic-hell.eastasia.cloudapp.azure.com 3306 && echo STILL OPEN || echo closed
+
+# 3. change that password — it was exposed, and it's six digits
+NEW=$(openssl rand -base64 24 | tr -dc A-Za-z0-9 | head -c 24); echo "$NEW"
+sudo mysql -e "ALTER USER 'api_user'@'%' IDENTIFIED BY '$NEW'; ALTER USER 'api_user'@'localhost' IDENTIFIED BY '$NEW';"
+# put the same value in ~/crud-api/.env (DB_PASSWORD and DATABASE_URL), then: pm2 restart crud-api
+
+# 4. optional, stronger: bind MySQL to loopback only
+sudo sed -i 's/^bind-address.*/bind-address = 127.0.0.1/' /etc/mysql/mysql.conf.d/mysqld.cnf && sudo systemctl restart mysql
+```
+
+After that, reach the database from a laptop through an SSH tunnel instead:
+`ssh -i ~/.ssh/bad-vps-01_key.pem -L 3306:127.0.0.1:3306 azureuser@chaotic-hell…` .
+
+This project's own database user (`campus_events_user@localhost`) is local-only and unaffected.
+
 ### Docker, 2026-09-16 — works locally, not used in production
 
 The scaffold's `Dockerfile` (2026-09-09) was never revisited and **would have built a
@@ -410,6 +445,20 @@ ticket and their own event list.
 - The e2e build (`tests/e2e/serve-frontend.mjs`) now uses the project's own `vite.config.js`, so it chunks exactly like production.
 - Tested: `tests/e2e/stale-release-test.mjs` builds two real releases and serves them from disk, holds the tab's background request until the second build has deleted the file, then lets it through (**13/13**: one reload onto the new release, still signed in; when the new code can't be fetched either, the message instead of a reload loop, and the button recovers) — with the reload handler disabled, 3 checks fail. Full UI suite **152/152** (165 map tiles, all real), cover-image UI **16/16**. The cover-image UI test was also fixed to act on its own event: it had been clicking the first "Edit" on the page and checking images before they loaded, and its cleanup didn't delete supply orders, so its event deletion failed silently.
 
+**Cleanup and a full test sweep, 2026-09-18.** Dead code removed: exports nothing imported
+(`allowedOrigins`, `postToDiscord`, `processDue`, `MAX_SUPPLY_QUANTITY`, `formatDay`,
+`formatTime`) are internal again, and the CSS for the supply `Switch` (gone since 2026-09-16)
+plus the unused `.btn-accent`/`.btn-lg` variants were deleted — 1 KB off the stylesheet. Every
+dependency was checked and is still used. Then everything was run against a throwaway MySQL and
+a real Chrome: **204** offline, **166** api-test, **32** image-test, **46** outbox-test, **152**
+ui-test (157 map tiles, all real), **16** image-ui-test, **5** tabs-test, **5** idle-test,
+**13** stale-release-test (twice), **12/12** live sign-in. Three test bugs surfaced and were
+fixed: outbox-test now refuses to run while another copy of the app is serving the same database
+(its worker claimed the test's jobs — which is the locking working, but it made six checks fail
+confusingly); image-ui-test scrolls its row into view first, since thumbnails load lazily; and
+stale-release-test counts reloads from before the second build, because either the held script
+*or* the stylesheet can be the request that notices the release changed.
+
 **Shared-computer sign-in, 2026-09-16** (the teacher's concern: lab machines are shared, and
 one student must not end up using another's account):
 - MSAL cache stays `sessionStorage` **on purpose** — the session dies with the tab/browser. `localStorage` would share it across tabs and survive a browser restart; convenient, wrong here.
@@ -448,6 +497,8 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 
 ## 11. Still to do (as of 2026-09-18)
 
+- ❗ **Close MySQL to the internet** — see §3. Four commands, Thar has to run them.
+
 - **GitHub** (requirement 9). Needs from Thar: a repo name, private or public, and Honey's and Mi Hsu's GitHub usernames to add as collaborators. The plan is for each teammate to push their own genuine remaining work from their own laptop, not to rewrite history to fake authorship.
 - ~~README.md~~ — added 2026-09-18.
 - **CI hasn't run on GitHub yet** — there's no remote. Every job's steps were run in Linux containers instead (§3), and actionlint passes, but check the first run's result after pushing.
@@ -456,4 +507,5 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 - **Report / demo**: write-up, deployment diagram if asked for, a demo script and a rehearsal.
 - **Thar, by hand**: delete the `[E2E]` test messages in the Discord channel (Claude doesn't delete messages), and restrict the Geoapify key to this site in the Geoapify dashboard.
 - **Honey's role** — see §4: currently `STUDENT`.
+- **Video presentation**: [docs/demo-script.md](docs/demo-script.md) is the 9:30 running order for the three of you, and [docs/demo-commands.txt](docs/demo-commands.txt) holds every command, each one run against the live server first. Thar: tidy the test events (`sdd`, `niioio`, `qqqq`) and the `vmes` venue, and delete the old `[E2E]` Discord messages beforehand. Afterwards, set Mi Hsu back to Organizer.
 - Known gaps, not planned: a venue can't be edited after creation; an event's venue and supply order can't be changed after creation; the Admin Activity tab shows the latest 100 entries with no "load more". (The ~740 KB bundle was split on 2026-09-18 — §9.)
