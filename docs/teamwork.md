@@ -20,12 +20,15 @@ Co-authors get credit too: they show on the commit and count as contributors.
 ## One-time setup (each person, on your own laptop)
 
 ```bash
-git clone <the repository URL>
-cd campus-event-api
+git clone https://github.com/kayos4326/campus-event-management-booking-api.git
+cd campus-event-management-booking-api
 git config user.name "Your Name"          # as you want it shown
 git config user.email "your-github-email" # must match your GitHub account
 npm install && npm test                    # 204 tests should pass — proves your setup works
 ```
+
+You need to **accept the collaborator invitation** first — GitHub emails it to you, and it is also
+waiting at the repository page. Without it you can clone (the repository is public) but not push.
 
 Find the right email at GitHub → Settings → Emails. If you'd rather not publish your address,
 use the `…@users.noreply.github.com` one shown there.
