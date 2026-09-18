@@ -158,6 +158,8 @@ try {
   check('the event saved with its image', true)
 
   const ownRow = await cardSelector('.manage-card', title)
+  // Thumbnails load lazily, and with a long list this row can start off screen.
+  await page.$eval(ownRow, (el) => el.scrollIntoView({ block: 'center' }))
   check('the organizer list shows a thumbnail', ownRow && await imageLoaded(`${ownRow} .manage-thumb`), ownRow)
   await shot('organizer-list')
 

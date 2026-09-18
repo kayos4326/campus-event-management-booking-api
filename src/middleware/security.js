@@ -84,4 +84,4 @@ const writeLimiter = () => {
   return (req, res, next) => (req.method === "GET" ? next() : limit(req, res, next));
 };
 
-module.exports = { corsPolicy, securityHeaders, readLimiter, writeLimiter, allowedOrigins, cspDirectives, REFERRER_POLICY };
+module.exports = { corsPolicy, securityHeaders, readLimiter, writeLimiter, cspDirectives, REFERRER_POLICY };

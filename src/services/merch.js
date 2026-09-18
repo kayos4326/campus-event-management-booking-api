@@ -90,4 +90,4 @@ async function markSupplyRequestFailed({ preorderId }) {
 
 outbox.registerHandler(JOB_TYPE, { run: deliverSupplyRequest, onDead: markSupplyRequestFailed });
 
-module.exports = { JOB_TYPE, enqueueSupplyRequest, deliverSupplyRequest, markSupplyRequestFailed, postToDiscord };
+module.exports = { JOB_TYPE, enqueueSupplyRequest, deliverSupplyRequest, markSupplyRequestFailed };

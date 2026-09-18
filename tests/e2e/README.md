@@ -23,6 +23,8 @@ mock everything instead. The last full run was on 2026-09-15; results are in `CL
 - The server binds to `127.0.0.1` on the VM only. Reach it through an SSH tunnel.
 - All test data is tagged: `e2e-…` users, and `[E2E] …` events, venues and API keys. `db.cjs cleanup` deletes only tagged rows.
 - `api-test.mjs` creates one large-conference event, which posts a **real message** to the team Discord channel.
+- Run `outbox-test.mjs` with no other copy of the app running against the same database: the other worker would claim this test's jobs and deliver them elsewhere. The test checks for that and stops.
+- `idle-test.mjs` needs a build made with a short `VITE_IDLE_MINUTES` (e.g. `VITE_IDLE_MINUTES=0.2`), or the warning takes the real 15 minutes to appear.
 
 ## Running it
 

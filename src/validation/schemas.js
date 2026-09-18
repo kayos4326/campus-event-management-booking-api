@@ -247,5 +247,4 @@ module.exports = {
   apiKeyCreate,
   auditQuery,
   roomQuery,
-  MAX_SUPPLY_QUANTITY,
 };

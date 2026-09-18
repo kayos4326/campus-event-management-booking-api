@@ -140,6 +140,20 @@ async function api(port, method, path, body) {
 
 // ---------------------------------------------------------------------------- helpers
 
+const A = 3998
+const B = 3997
+
+// Another app instance on this database would claim these jobs and deliver them to its own
+// Discord — the counts here would then be wrong in a confusing way. Stop it first, or start
+// it with OUTBOX_WORKER=off.
+for (const port of [A, B]) {
+  const answered = await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false)
+  if (answered) {
+    console.error(`Something is already serving on :${port}. Stop it (or run it with OUTBOX_WORKER=off) — its outbox worker would take this test's jobs.`)
+    process.exit(2)
+  }
+}
+
 const venue = await prisma.venue.create({
   data: { name: '[E2E] Outbox Hall', addressRaw: 'Campus', latitude: 13.61, longitude: 100.83, isVerified: true },
 })
@@ -160,9 +174,6 @@ const jobsFor = async (eventId) => {
   return order ? prisma.outboxJob.findMany({ where: { dedupeKey: `supply:${order.id}` }, orderBy: { id: 'asc' } }) : []
 }
 const confirmed = (eventId) => waitFor(async () => (await orderFor(eventId))?.status === 'CONFIRMED')
-
-const A = 3998
-const B = 3997
 
 try {
   await startServer(A)

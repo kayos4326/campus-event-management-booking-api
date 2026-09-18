@@ -216,7 +216,6 @@ module.exports = {
   backoffMs,
   claim,
   runJob,
-  processDue,
   startWorker,
   stopWorker,
   kick,

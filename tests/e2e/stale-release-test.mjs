@@ -99,15 +99,17 @@ try {
   check('release A asked for the organizer page in the background', !!held)
   check('…and is running release A', (await loadedEntry())?.includes(oldRelease.entry))
 
+  // Count reloads from here: release B deletes A's files, and either the held script or the
+  // page's stylesheet can be the request that notices first.
+  reloads = 0
   const newRelease = buildRelease(16)
   check('release B renamed the files', newRelease.organizer !== oldRelease.organizer && newRelease.entry !== oldRelease.entry, [oldRelease, newRelease])
   check('release A\'s organizer code is gone from the server', !fs.existsSync(path.join(DIST, 'assets', oldRelease.organizer)))
 
-  reloads = 0
   held.continue() // now it reaches the server, which has only release B
   await page.waitForFunction((entry) => [...document.querySelectorAll('script[type=module]')].some((s) => s.src.includes(entry)), { timeout: 15000 }, newRelease.entry).catch(() => {})
   check('the tab reloaded itself onto release B', (await loadedEntry())?.includes(newRelease.entry), await loadedEntry())
-  check('…exactly once', reloads === 1, reloads)
+  check('…exactly once, however it found out', reloads === 1, reloads)
   await page.waitForFunction(() => document.querySelector('nav'))
   check('…and is still signed in', await page.evaluate(() => [...document.querySelectorAll('nav button')].some((b) => b.innerText.includes('My events'))))
   await openMyEvents()

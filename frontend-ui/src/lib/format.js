@@ -6,9 +6,9 @@ const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
 
 const sameDay = (a, b) => a.toDateString() === b.toDateString()
 
-export const formatDay = (value) => dayFmt.format(new Date(value))
+const formatDay = (value) => dayFmt.format(new Date(value))
 export const formatDate = (value) => dayYearFmt.format(new Date(value))
-export const formatTime = (value) => timeFmt.format(new Date(value))
+const formatTime = (value) => timeFmt.format(new Date(value))
 export const monthShort = (value) => monthFmt.format(new Date(value))
 export const weekdayShort = (value) => weekdayFmt.format(new Date(value))
 export const dayOfMonth = (value) => new Date(value).getDate()
