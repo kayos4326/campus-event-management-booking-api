@@ -536,7 +536,8 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
   needs no database — and the rehearsal in Linux containers never caught it because that shell had a
   `DATABASE_URL` exported for the e2e work. Fixed by giving the job a placeholder `DATABASE_URL`; the
   tests mock Prisma, so the job still opens no connection. Reproduced locally first
-  (`env -u DATABASE_URL npx prisma validate` → P1012; with the placeholder → valid).
+  (`env -u DATABASE_URL npx prisma validate` → P1012; with the placeholder → valid). The next run
+  was **green on all five jobs**, so CI now passes end to end on GitHub's own runners.
 - **Local sign-in doesn't work, confirmed 2026-09-18.** Asking Microsoft's authorize endpoint with `prompt=none` shows which redirect addresses are trusted: it redirects the error back for `https://chaotic-hell…/events/` (registered) but not for `http://localhost:5173/events/` or `http://localhost:3001/events/`. So `npm run dev` and `docker compose up` can't sign in — the page and API work, the sign-in doesn't. To change that, Thar (the AU tenant's owner) can add them:
   ```bash
   az login --allow-no-subscriptions --tenant c1f3dc23-b7f8-48d3-9b5d-2b12f158f01f
