@@ -499,7 +499,7 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 
 - ❗ **Close MySQL to the internet** — see §3. Four commands, Thar has to run them.
 
-- **GitHub** (requirement 9). Needs from Thar: a repo name, private or public, and Honey's and Mi Hsu's GitHub usernames to add as collaborators. The plan is for each teammate to push their own genuine remaining work from their own laptop, not to rewrite history to fake authorship.
+- **GitHub** (requirement 9). Decided 2026-09-18: repository "Campus Event Management & Booking API", **public**, pushed **after** the MySQL exposure above is closed — the repo documents it, and history keeps it. `gh` is authenticated as `kayos4326`. Still needed: Honey's and Mi Hsu's GitHub usernames, to add as collaborators. Each teammate does real work and commits it themselves — [docs/teamwork.md](docs/teamwork.md) divides what's left and explains how GitHub credits authors and co-authors. History is **not** rewritten to fake authorship.
 - ~~README.md~~ — added 2026-09-18.
 - **CI hasn't run on GitHub yet** — there's no remote. Every job's steps were run in Linux containers instead (§3), and actionlint passes, but check the first run's result after pushing.
 - **Local sign-in doesn't work, confirmed 2026-09-18.** Asking Microsoft's authorize endpoint with `prompt=none` shows which redirect addresses are trusted: it redirects the error back for `https://chaotic-hell…/events/` (registered) but not for `http://localhost:5173/events/` or `http://localhost:3001/events/`. So `npm run dev` and `docker compose up` can't sign in — the page and API work, the sign-in doesn't. To change that, Thar (the AU tenant's owner) can add them:
