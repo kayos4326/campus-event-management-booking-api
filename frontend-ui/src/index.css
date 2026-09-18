@@ -628,7 +628,11 @@ a { color: inherit; }
 .venue-card { overflow: hidden; }
 .venue-card .event-media { aspect-ratio: 16 / 7; }
 .venue-card-body { padding: 14px 16px 16px; display: grid; gap: 4px; }
-.venue-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+/* Three actions don't fit across a 240px card column, and .venue-card clips what
+   overflows — which silently hid Remove when Edit was added. The map link takes its own
+   line so Edit and Remove always have room. */
+.venue-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: 8px; flex-wrap: wrap; }
+.venue-card-actions .map-link { flex: 1 1 100%; }
 .venue-card-actions .btn-danger { --btn-border: transparent; }
 
 .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
