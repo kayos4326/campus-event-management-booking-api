@@ -97,16 +97,16 @@ another deploy, and a crash on start meant the site was down until someone notic
 - ✅ **First real deploy 2026-09-17 17:16 UTC** (release `20260917-171608-6bdf478`): adopted the old layout as `legacy-20260917-171615`, backed up (84 KB, taken before `outbox_jobs` existed), applied `20260918090000_outbox_jobs`, pre-flight and live checks passed. A public probe every 0.5s saw 3 × 502 during the switch (~1.5s) and nothing else failing. Then **rolled back to legacy and forward again on production** (`./deploy.sh rollback` twice): both switches passed their checks, 5 × 502 in total. Afterwards: `/content` 301, `/api` 404 (as before), live sign-in redirect check 12/12, no `DATABASE_URL` in PM2's dump.
 - The e2e instructions (`tests/e2e/README.md`) now use `APP_DIR=$HOME/campus-event-api/current`.
 
-### ❗ MySQL is open to the internet (found 2026-09-18, NOT yet fixed)
+### MySQL was open to the internet — found and closed 2026-09-18
 
-Found while preparing the demo, and it undercuts requirement #1:
+Found while preparing the demo. **Fixed the same day** (see the end of this section); kept here because it's the kind of thing that creeps back:
 
 - `ufw` allows **3306 from anywhere** and MySQL binds `0.0.0.0`. Connecting from outside the VM succeeds and the server returns its version banner (8.0.46).
 - `api_user@%` may log in **from any address** and holds `ALL PRIVILEGES ON *.* WITH GRANT OPTION` (plus `SUPER`, `FILE`, `CREATE USER`) — so it reaches `campus_events` and `wordpress`, not just its own `store`. **Its password is six digits.**
 - Checked for abuse: no unexpected accounts, databases or tables, and no access-denied entries. Nothing suggests it has been used, but the exposure is real.
 - The port is open because the lab's own `crud-api` (a different project on the same VM) connects to the **public hostname** instead of `127.0.0.1`, so closing the port without changing that would break it.
 
-**The fix, in this order** (Thar has to run it — editing another project's config, changing MySQL credentials and changing the VM firewall were all refused to this assistant as changes to shared resources):
+**What was done** (Thar ran these — editing another project's config, changing MySQL credentials and changing the VM firewall were all refused to this assistant as changes to shared resources):
 
 ```bash
 # 1. point the lab API at localhost (it runs on the same machine)
@@ -127,10 +127,19 @@ sudo mysql -e "ALTER USER 'api_user'@'%' IDENTIFIED BY '$NEW'; ALTER USER 'api_u
 sudo sed -i 's/^bind-address.*/bind-address = 127.0.0.1/' /etc/mysql/mysql.conf.d/mysqld.cnf && sudo systemctl restart mysql
 ```
 
-After that, reach the database from a laptop through an SSH tunnel instead:
+✅ **Done 2026-09-18**: the lab API reads the database over `127.0.0.1` (still answering 200), the
+`ufw` rule is gone — note it had been added as `3306/tcp`, so `ufw delete allow 3306` reported
+"non-existent rule" and `3306/tcp` was needed — and both `api_user` passwords were replaced at
+15:26 UTC with a 24-character random one. Verified from outside: port 3306 now times out, where
+it used to answer with its version banner. `/events/` 200, `/content` 301, `/api/products` 200.
+
+Step 4 (binding MySQL to loopback) is **not** done — with the port closed it's belt and braces,
+worth doing next time MySQL restarts anyway.
+
+To reach the database from a laptop now, tunnel over SSH:
 `ssh -i ~/.ssh/bad-vps-01_key.pem -L 3306:127.0.0.1:3306 azureuser@chaotic-hell…` .
 
-This project's own database user (`campus_events_user@localhost`) is local-only and unaffected.
+This project's own database user (`campus_events_user@localhost`) is local-only and was unaffected.
 
 ### Docker, 2026-09-16 — works locally, not used in production
 
@@ -497,7 +506,7 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 
 ## 11. Still to do (as of 2026-09-18)
 
-- ❗ **Close MySQL to the internet** — see §3. Four commands, Thar has to run them.
+- **Optional hardening left**: bind MySQL to `127.0.0.1` (§3). The port is closed, so this is defence in depth.
 
 - **GitHub** (requirement 9). Decided 2026-09-18: repository "Campus Event Management & Booking API", **public**, pushed **after** the MySQL exposure above is closed — the repo documents it, and history keeps it. `gh` is authenticated as `kayos4326`. Still needed: Honey's and Mi Hsu's GitHub usernames, to add as collaborators. Each teammate does real work and commits it themselves — [docs/teamwork.md](docs/teamwork.md) divides what's left and explains how GitHub credits authors and co-authors. History is **not** rewritten to fake authorship.
 - ~~README.md~~ — added 2026-09-18.
