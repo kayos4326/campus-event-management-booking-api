@@ -49,7 +49,7 @@ A platform where university organizations create events and students book seats.
 | Exposed endpoint | REST, `x-api-key` header auth | Generic, not tied to a specific consumer team — see §5 |
 | Containers | `Dockerfile` + `docker-compose.yml` (app + MySQL) | Reworked and actually verified 2026-09-16 — see §3. Production still deploys natively (PM2 + Nginx), like the lab's `crud-api` |
 | Hosting | Same VPS as the existing lab/WordPress stack | New URL path, must not break existing routes (see §3) |
-| Source control | GitHub | Not pushed yet (§11). CI in `.github/workflows/ci.yml` runs once it is — see §3 |
+| Source control | GitHub | [kayos4326/campus-event-management-booking-api](https://github.com/kayos4326/campus-event-management-booking-api), public, pushed 2026-09-19 (§11). CI in `.github/workflows/ci.yml` runs on every push — see §3 |
 | Deploys | `deploy.sh` → release directories on the VM, pre-flight check, DB backup, automatic + manual rollback | Reworked 2026-09-18 — see §3 |
 | Request validation | `zod` schemas in `src/validation/`, one middleware | Added 2026-09-18 — see §4 |
 | Background delivery | Transactional outbox (`outbox_jobs`), worker in the app process | Added 2026-09-18 — see §5 |
@@ -495,7 +495,7 @@ The teacher's "Core Requirements to hit Course Objectives", and where this proje
 | 6 | No production secrets in `.env`; fetch them from the **Class** Azure Key Vault ("credentials will be provided") | ⚠️ Secrets are fetched at runtime from Key Vault, but **our own** vault (`campus-event-api-kv`, §4) — class credentials were never provided. There is no JWT secret to store, because Microsoft signs the tokens and the app only verifies them. |
 | 7 | At least one external public API / AI service | ✅ Geoapify (§9) |
 | 8 | Peer API with a classmate team: expose an `x-api-key` endpoint **and** consume theirs | ⚠️ Expose ✅ (room-status API, §5). Consume is the **Discord webhook**, not a classmate's API — on a verbal instruction from the teacher (2026-09-10, §5), which contradicts this written rule. |
-| 9 | Code in a GitHub repository | ❌ Not yet: commits are local only, no remote (§11). CI is ready and runs on the first push |
+| 9 | Code in a GitHub repository | ✅ [kayos4326/campus-event-management-booking-api](https://github.com/kayos4326/campus-event-management-booking-api) — public, 48 commits, pushed 2026-09-19 (§11) |
 | 10 | Automated deployment script or Docker Compose | ✅ Both: `deploy.sh` for production (release-based, with rollback), `docker-compose.yml` for local (§3) |
 
 **Decided 2026-09-16 — don't reopen without Thar:** the two ⚠️ rows were raised as risks (switch to the
@@ -508,7 +508,16 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 
 - **Optional hardening left**: bind MySQL to `127.0.0.1` (§3). The port is closed, so this is defence in depth.
 
-- **GitHub** (requirement 9). Decided 2026-09-18: repository "Campus Event Management & Booking API", **public**, pushed **after** the MySQL exposure above is closed — the repo documents it, and history keeps it. `gh` is authenticated as `kayos4326`. Still needed: Honey's and Mi Hsu's GitHub usernames, to add as collaborators. Each teammate does real work and commits it themselves — [docs/teamwork.md](docs/teamwork.md) divides what's left and explains how GitHub credits authors and co-authors. History is **not** rewritten to fake authorship.
+- ✅ **GitHub** (requirement 9) — **pushed 2026-09-19** to
+  [kayos4326/campus-event-management-booking-api](https://github.com/kayos4326/campus-event-management-booking-api),
+  public, all 48 commits with their full history. It went up only after the MySQL exposure above was
+  closed, because the repo documents it and history keeps it. Before pushing, the tree and the whole
+  history were scanned for secrets: the only credentials in it are throwaway ones (`root:root`,
+  `localdev`) and `<password>` placeholders — no webhook URL, no API key, no private key.
+  `honeyyyhl13` (Honey) and `hsumyatwinmyint` (Mi Hsu) were invited as collaborators with write
+  access; **each has to accept the invitation** before she can push. Each teammate does real work and
+  commits it herself — [docs/teamwork.md](docs/teamwork.md) divides what's left and explains how
+  GitHub credits authors and co-authors. History is **not** rewritten to fake authorship.
   - **Author email corrected before the first push, 2026-09-19.** Every commit was authored as
     `u6642062@au.edu`, which GitHub matches to Thar's *other* account (`Thar244326`) — that is
     where the AU address is registered. Thar is not using that address any more, so all 47
@@ -520,7 +529,14 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
     old name because that is what the directory is actually called; that commit is now `37a2043`.
     The pre-rewrite history is on the local branch `pre-email-rewrite`.
 - ~~README.md~~ — added 2026-09-18.
-- **CI hasn't run on GitHub yet** — there's no remote. Every job's steps were run in Linux containers instead (§3), and actionlint passes, but check the first run's result after pushing.
+- **CI's first real run, 2026-09-19** — 4 of 5 jobs passed first time (deploy scripts, frontend
+  lint/build, Docker image, and migrations + outbox + images on a real MySQL). The API job failed on
+  `npx prisma validate`: **P1012, `Environment variable not found: DATABASE_URL`**. `validate` resolves
+  `env("DATABASE_URL")` out of `schema.prisma` before it checks anything, even though checking a schema
+  needs no database — and the rehearsal in Linux containers never caught it because that shell had a
+  `DATABASE_URL` exported for the e2e work. Fixed by giving the job a placeholder `DATABASE_URL`; the
+  tests mock Prisma, so the job still opens no connection. Reproduced locally first
+  (`env -u DATABASE_URL npx prisma validate` → P1012; with the placeholder → valid).
 - **Local sign-in doesn't work, confirmed 2026-09-18.** Asking Microsoft's authorize endpoint with `prompt=none` shows which redirect addresses are trusted: it redirects the error back for `https://chaotic-hell…/events/` (registered) but not for `http://localhost:5173/events/` or `http://localhost:3001/events/`. So `npm run dev` and `docker compose up` can't sign in — the page and API work, the sign-in doesn't. To change that, Thar (the AU tenant's owner) can add them:
   ```bash
   az login --allow-no-subscriptions --tenant c1f3dc23-b7f8-48d3-9b5d-2b12f158f01f

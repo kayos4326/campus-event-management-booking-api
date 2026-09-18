@@ -21,6 +21,12 @@ jobs:
     name: API tests (Node 18, as on the VM)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # `prisma validate` resolves env("DATABASE_URL") out of schema.prisma before it will
+    # check anything, even though checking the schema needs no database. The tests
+    # themselves mock Prisma, so a placeholder is enough: this job never opens a
+    # connection. The `database` job below is the one that talks to a real MySQL.
+    env:
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/campus_events
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
