@@ -66,6 +66,31 @@ manages that registration.
 End-to-end tests (real MySQL, real Chrome, a fake Discord) are described in
 [tests/e2e/README.md](tests/e2e/README.md).
 
+## Running it from a zip (marking, or a teammate with no access)
+
+Everything needed is in the repository — no secrets, no Azure access:
+
+```bash
+npm install && npm test          # 204 tests, no database or network needed
+docker compose up --build        # the whole stack, then http://localhost:3001/events/
+```
+
+Both were checked from a fresh unpacked zip: the tests pass, and Docker creates the database,
+applies all seven migrations and serves the app.
+
+**Signing in only works on the live site.** Microsoft only returns people to web addresses
+registered on our Entra app, and only `https://chaotic-hell.eastasia.cloudapp.azure.com/events/`
+is registered — `localhost` is not (verified against Microsoft's sign-in service). So a local
+copy shows the sign-in page and the API correctly answers 401, but you can't sign in to it. To
+see the app in use, use the live site. A first-time visitor signs in as a Student; an admin can
+change that from the Admin tab.
+
+To make a zip without the installed packages:
+
+```bash
+git archive --format=zip HEAD -o campus-events.zip
+```
+
 ## Deploying
 
 Needs the VM's SSH key and Azure CLI access to the Key Vault.

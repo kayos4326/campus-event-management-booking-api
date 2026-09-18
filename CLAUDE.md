@@ -502,7 +502,15 @@ to consume a real peer API). Thar's answer was **"forget these two"**, so neithe
 - **GitHub** (requirement 9). Needs from Thar: a repo name, private or public, and Honey's and Mi Hsu's GitHub usernames to add as collaborators. The plan is for each teammate to push their own genuine remaining work from their own laptop, not to rewrite history to fake authorship.
 - ~~README.md~~ — added 2026-09-18.
 - **CI hasn't run on GitHub yet** — there's no remote. Every job's steps were run in Linux containers instead (§3), and actionlint passes, but check the first run's result after pushing.
-- **Signing in from `npm run dev`**: `authConfig.js` sends `http://localhost:5173/events/` as the redirect address, while §9 records only `http://localhost:5173/` as registered on the Entra app. Microsoft only checks that after a real sign-in, so it's unverified — if local sign-in fails with AADSTS50011, add the `/events/` address to the app registration.
+- **Local sign-in doesn't work, confirmed 2026-09-18.** Asking Microsoft's authorize endpoint with `prompt=none` shows which redirect addresses are trusted: it redirects the error back for `https://chaotic-hell…/events/` (registered) but not for `http://localhost:5173/events/` or `http://localhost:3001/events/`. So `npm run dev` and `docker compose up` can't sign in — the page and API work, the sign-in doesn't. To change that, Thar (the AU tenant's owner) can add them:
+  ```bash
+  az login --allow-no-subscriptions --tenant c1f3dc23-b7f8-48d3-9b5d-2b12f158f01f
+  APP=$(az ad app list --app-id f581260c-6bc3-4f8c-a711-ac2ca274f56b --query "[0].id" -o tsv)
+  az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$APP" \
+    --headers Content-Type=application/json \
+    --body '{"spa":{"redirectUris":["https://chaotic-hell.eastasia.cloudapp.azure.com/events/","http://localhost:5173/events/","http://localhost:3001/events/"]}}'
+  ```
+  (That replaces the whole list, so keep the production URL in it.) A new signer-in gets `STUDENT`; an Admin can change the role afterwards.
 - **`docs/proposal.md` is out of date** in several places: Mapbox/static map links (now a pin on a map), a fixed 50 lanyards (now organizer-chosen), the Merch team's peer API (now Discord), a JWT signing secret and peer API keys stored in Key Vault (neither exists). It's the submitted document, so decide whether to amend it or explain the changes in the report.
 - **Report / demo**: write-up, deployment diagram if asked for, a demo script and a rehearsal.
 - **Thar, by hand**: delete the `[E2E]` test messages in the Discord channel (Claude doesn't delete messages), and restrict the Geoapify key to this site in the Geoapify dashboard.
