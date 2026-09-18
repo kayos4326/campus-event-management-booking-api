@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 REPO="$PWD"
 
-LEGACY_COMMIT="${LEGACY_COMMIT:-06c45a5}"
+LEGACY_COMMIT="${LEGACY_COMMIT:-5ee176d}"
 NET=campus-deploy-test
 VM=campus-deploy-vm
 DB=campus-deploy-mysql

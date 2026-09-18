@@ -74,6 +74,6 @@ supply-order checks fail on purpose — that's the price of not posting test mes
 team's real channel.
 
 To reproduce the **pre-fix race condition**, point `APP_DIR` at a copy of the code from commit
-`01b4dcc` and run `ONLY=race node api-test.mjs` against it. On 2026-09-15, 12 simultaneous
+`1e1f2ac` and run `ONLY=race node api-test.mjs` against it. On 2026-09-15, 12 simultaneous
 bookings for a 1-seat event produced **12 confirmed seats**. The current code produced exactly
 1 confirmed seat in every round.
