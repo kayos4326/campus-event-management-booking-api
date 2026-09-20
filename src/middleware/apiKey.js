@@ -6,9 +6,7 @@ function hashApiKey(rawKey) {
   return crypto.createHash("sha256").update(rawKey).digest("hex");
 }
 
-// Peer-API auth for keys WE issue to consumers of our exposed endpoint — docs/proposal.md: "We generate
-// an API key and issue it only to their team. The key is stored as a hash in our
-// database." Checked against the ApiKey table, not a static env var.
+// Authenticate external backends with scoped keys whose hashes are stored in MySQL.
 function requirePeerApiKey(scope) {
   return asyncHandler(async (req, res, next) => {
     const provided = req.headers["x-api-key"];

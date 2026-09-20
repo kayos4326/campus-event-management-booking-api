@@ -22,7 +22,7 @@ const RELEASE = (() => {
 
 function createApp() {
   const app = express();
-  // Nginx sits in front (see CLAUDE.md §3), so trust its X-Forwarded-For for client IPs.
+  // Trust the single Nginx proxy when applying per-client rate limits.
   app.set("trust proxy", 1);
   app.use(securityHeaders);
   app.use(corsPolicy); // only our own frontend may call the API from a browser
@@ -45,9 +45,7 @@ function createApp() {
   // Abuse protection on the API only — the frontend's own files aren't rate limited.
   app.use("/events/api", readLimiter(), writeLimiter());
 
-  // Mounted under /events: Nginx's `location /events { proxy_pass
-  // http://127.0.0.1:3001; }` forwards the full request URI unchanged (same
-  // non-stripping pattern as the existing /api block) — see CLAUDE.md §3.
+  // All application routes live under /events so existing VPS routes remain untouched.
   app.use("/events/api/venues", venuesRouter);
   app.use("/events/api/events", eventsRouter);
   app.use("/events/api/bookings", bookingsRouter);

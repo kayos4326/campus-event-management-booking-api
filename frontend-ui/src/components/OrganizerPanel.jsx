@@ -231,10 +231,7 @@ function VenueModal({ open, onClose, onCreated, api }) {
   )
 }
 
-// A venue's labels can be corrected after it was added — before this, a mistyped name
-// meant creating a second venue and archiving the first. The pin is deliberately not
-// editable: events already at this venue point at those coordinates, so the map here is
-// read-only and the server rejects a latitude or longitude sent to this endpoint.
+// Edit labels only; moving the pin would silently relocate existing events.
 function VenueEditModal({ open, venue, onClose, onSaved, api }) {
   const [form, setForm] = useState({
     name: venue?.name ?? '',
@@ -246,8 +243,7 @@ function VenueEditModal({ open, venue, onClose, onSaved, api }) {
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
-  // Send only what actually changed, so the Activity tab records the real edit rather
-  // than "everything was set to what it already was".
+  // Send only changed fields so the Activity entry stays meaningful.
   const changes = {}
   if (venue) {
     if (form.name.trim() !== (venue.name ?? '')) changes.name = form.name.trim()

@@ -1,6 +1,4 @@
-// Matches docs/proposal.md, amended 2026-09-10 per CLAUDE.md §5: the peer-to-classmate
-// API integration (Merch/HelpDesk) was replaced with a genuine public API (Discord
-// webhook) for the consume side; the exposed endpoint stays but isn't team-specific.
+// Relational model for users, venues, events, bookings and supporting integrations.
 generator client {
   provider = "prisma-client-js"
 }
@@ -29,16 +27,16 @@ enum BookingStatus {
 }
 
 enum PreorderStatus {
-  PENDING // not sent yet: waiting to be published, or still being retried
+  PENDING // waiting for Discord delivery
   CONFIRMED
-  FAILED // gave up — publishing the event again queues a fresh attempt
+  FAILED // delivery exhausted its retries
 }
 
 enum OutboxStatus {
-  PENDING // due at runAt: a first try, or a retry after a failure
-  PROCESSING // claimed by a worker until lockedUntil
+  PENDING // ready now or scheduled for a retry
+  PROCESSING // leased by a worker until lockedUntil
   DONE
-  DEAD // gave up: an error retrying can't fix, or out of attempts
+  DEAD // permanent failure or retry limit reached
 }
 
 model User {
@@ -59,12 +57,12 @@ model User {
 model Venue {
   id           Int     @id @default(autoincrement())
   name         String
-  roomNumber   String? @map("room_number") // e.g. "402" - used by the exposed room-status lookup
+  roomNumber   String? @map("room_number") // queried by the room-status peer endpoint
   addressRaw   String  @map("address_raw")
-  latitude     Float? // set from the pin dropped on the map when the venue is created
+  latitude     Float? // organizer-selected map pin
   longitude    Float?
   isVerified   Boolean @default(false) @map("is_verified")
-  isArchived   Boolean @default(false) @map("is_archived") // hidden from new events; kept on old ones
+  isArchived   Boolean @default(false) @map("is_archived") // retained for historical events
 
   events Event[]
 
@@ -80,7 +78,7 @@ model Event {
   capacity          Int
   startsAt          DateTime    @map("starts_at")
   endsAt            DateTime    @map("ends_at")
-  isLargeConference Boolean     @default(false) @map("is_large_conference") // true when the organizer attached a supply order
+  isLargeConference Boolean     @default(false) @map("is_large_conference") // event has a supply request
   status            EventStatus @default(DRAFT)
   createdAt         DateTime    @default(now()) @map("created_at")
 
@@ -109,16 +107,14 @@ model Booking {
   @@map("bookings")
 }
 
-// A supply order an organizer attaches to an event ("200 x Blank lanyards"). Kept the
-// model name from docs/proposal.md; the fulfilment channel is now a Discord webhook
-// rather than the Merch team's API (CLAUDE.md §5), and the item/quantity are chosen by
-// the organizer rather than a fixed 50 lanyards (2026-09-16).
+// Optional supply request delivered to Discord after the event is published.
+// The model name is retained from the submitted proposal.
 model MerchPreorder {
   id           Int            @id @default(autoincrement())
-  eventId      Int            @unique @map("event_id") // 1:0..1 with Event
+  eventId      Int            @unique @map("event_id")
   item         String         @default("Blank lanyards")
   quantity     Int
-  peerOrderRef String?        @map("peer_order_ref") // Discord message id from the webhook post
+  peerOrderRef String?        @map("peer_order_ref") // Discord message ID
   status       PreorderStatus @default(PENDING)
   createdAt    DateTime       @default(now()) @map("created_at")
 
@@ -127,14 +123,10 @@ model MerchPreorder {
   @@map("merch_preorders")
 }
 
-// The poster an organizer uploads for an event. Its own table so listing events never
-// drags image bytes along, and stored in the database rather than on the VM's disk so a
-// redeploy, a container rebuild and a DB restore all keep the images. The browser
-// downscales before uploading, so rows are a few hundred KB.
+// Event images live separately so normal event queries never load the binary data.
 model EventImage {
   eventId   Int      @id @map("event_id")
-  // Random, and regenerated on every upload: the URL is unguessable (so a draft's poster
-  // isn't public) and changes when the image does (so caches can't serve a stale one).
+  // A new random key on every upload protects drafts and invalidates browser caches.
   key       String   @unique
   mimeType  String   @map("mime_type")
   bytes     Bytes    @db.LongBlob
@@ -145,23 +137,20 @@ model EventImage {
   @@map("event_images")
 }
 
-// Work that has to happen after a database change and must not be lost — today, posting a
-// supply order to Discord. A job is written in the same transaction as the change that
-// needs it, so it exists exactly when that change does, and survives restarts. A worker in
-// the app process delivers it and retries with backoff (services/outbox.js).
+// Durable work written in the same transaction as the business change that created it.
 model OutboxJob {
   id          Int          @id @default(autoincrement())
-  type        String // which handler runs it, e.g. "supply.send"
+  type        String // registered handler name, e.g. "supply.send"
   payload     Json
-  dedupeKey   String?      @map("dedupe_key") // at most one live job per key, e.g. "supply:12"
+  dedupeKey   String?      @map("dedupe_key") // prevents duplicate live jobs
   status      OutboxStatus @default(PENDING)
   attempts    Int          @default(0)
   maxAttempts Int          @default(8) @map("max_attempts")
   runAt       DateTime     @default(now()) @map("run_at")
-  lockToken   String?      @map("lock_token") // which claim owns it while PROCESSING
+  lockToken   String?      @map("lock_token") // identifies the worker lease
   lockedUntil DateTime?    @map("locked_until")
   lastError   String?      @map("last_error") @db.Text
-  note        String?      @db.Text // what happened, e.g. "sent: Discord message 1549…"
+  note        String?      @db.Text // short delivery result
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
   completedAt DateTime?    @map("completed_at")
@@ -171,17 +160,15 @@ model OutboxJob {
   @@map("outbox_jobs")
 }
 
-// Who did what, kept for the Admin activity view and each event's history.
-// Student bookings are deliberately not logged — they'd bury the organizer/admin actions
-// this is for, and a booking's own row already records who booked and when.
+// Organizer and Admin changes shown in Activity and event history views.
 model AuditLog {
   id         Int      @id @default(autoincrement())
-  actorId    Int?     @map("actor_id") // null if the account is later removed
-  actorLabel String   @map("actor_label") // name/email as it was at the time
-  action     String // e.g. "event.cancelled", "user.role_changed"
-  entityType String   @map("entity_type") // "event" | "venue" | "user" | "apiKey"
+  actorId    Int?     @map("actor_id") // nullable if the user is later removed
+  actorLabel String   @map("actor_label") // name or email captured at the time
+  action     String // e.g. "event.cancelled"
+  entityType String   @map("entity_type") // event, venue, user or apiKey
   entityId   Int?     @map("entity_id")
-  summary    String   @db.Text // one human-readable sentence
+  summary    String   @db.Text
   createdAt  DateTime @default(now()) @map("created_at")
 
   actor User? @relation(fields: [actorId], references: [id])
@@ -193,9 +180,9 @@ model AuditLog {
 
 model ApiKey {
   id         Int      @id @default(autoincrement())
-  ownerLabel String   @map("owner_label") // free-text label for whoever the key was issued to
-  keyHash    String   @map("key_hash") // store hash, never the raw key
-  scope      String // e.g. "room-status:read"
+  ownerLabel String   @map("owner_label") // identifies the receiving system
+  keyHash    String   @map("key_hash") // raw keys are never stored
+  scope      String // allowed operation, e.g. "room-status:read"
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
 

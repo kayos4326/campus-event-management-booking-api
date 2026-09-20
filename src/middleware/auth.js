@@ -3,9 +3,7 @@ const jwksClient = require("jwks-rsa");
 const { prisma } = require("../services/prisma");
 const { asyncHandler } = require("./asyncHandler");
 
-// Validates Entra ID (AD) access tokens — docs/proposal.md: "Authentication: Microsoft
-// Active Directory (Entra ID, OIDC)". Requires TENANT_ID + CLIENT_ID (audience) set via
-// bootstrap config — see CLAUDE.md §4.
+// Microsoft publishes the RS256 public keys used to verify Entra access tokens.
 const client = jwksClient({
   jwksUri: `https://login.microsoftonline.com/${process.env.TENANT_ID}/discovery/v2.0/keys`,
 });
@@ -32,17 +30,12 @@ function verifyJwt(token) {
   });
 }
 
-// The DB model allows exactly one role per user (see prisma/schema.prisma), but a
-// token's `roles` claim is an array — a user could in principle hold more than one
-// Entra App Role. ADMIN beats ORGANIZER beats STUDENT when more than one is assigned.
+// The database stores one role; use the highest role when Entra supplies several.
 const ROLE_PRIORITY = ["ADMIN", "ORGANIZER", "STUDENT"];
 function resolveRole(claimRoles) {
   return ROLE_PRIORITY.find((r) => (claimRoles || []).includes(r)) || "STUDENT";
 }
 
-// asyncHandler wrapped: this runs on every authenticated request, and its
-// prisma.user.upsert() call can throw — without wrapping, Express 4 would hang the
-// request instead of returning an error (confirmed directly — see asyncHandler.js).
 const requireAuth = asyncHandler(async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -57,10 +50,7 @@ const requireAuth = asyncHandler(async (req, res, next) => {
     return res.status(401).json({ error: "Invalid token" });
   }
 
-  // Provision the local User row on first sign-in. Role is only set from the token's
-  // App Roles claim at creation time — an existing user's role is NOT overwritten on
-  // every login, since Admins manage roles through our own /admin endpoints
-  // (docs/proposal.md), and Entra App Role assignment shouldn't silently clobber that.
+  // First sign-in creates the local profile. Existing roles remain Admin-managed.
   const user = await prisma.user.upsert({
     where: { adObjectId: decoded.oid },
     update: {},
@@ -72,8 +62,7 @@ const requireAuth = asyncHandler(async (req, res, next) => {
     },
   });
 
-  // DB fields override token claims: role and displayName/email are DB-authoritative
-  // (Admin-managed), not just whatever the token happens to say.
+  // The local profile is authoritative after provisioning.
   req.user = { ...decoded, id: user.id, role: user.role, email: user.email, displayName: user.displayName };
   next();
 });

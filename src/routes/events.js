@@ -27,18 +27,14 @@ const audit = require("../services/audit");
 
 const router = express.Router();
 
-// Cover images arrive as the raw file (no multipart wrapper, so no extra dependency) —
-// only for these routes, and only for real image content types.
+// Cover-image routes receive the raw image body instead of multipart form data.
 const imageBody = express.raw({ type: IMAGE_TYPES, limit: MAX_IMAGE_BYTES });
 
 function isOwnerOrAdmin(req, event) {
   return req.user.role === "ADMIN" || event.organizerId === req.user.id;
 }
 
-// Students/public browse only published events (docs/proposal.md). ?mine=true (added
-// for the frontend's "My Events" panel — not in the original proposal) lets an
-// Organizer see their own events regardless of status, including drafts; Admins see
-// everything via /admin/events instead.
+// Browse returns published events; `mine=true` returns every status owned by the caller.
 router.get(
   "/",
   requireAuth,
@@ -73,10 +69,7 @@ router.get(
   })
 );
 
-// The only endpoint in the app that isn't behind a token: an <img> tag can't send an
-// Authorization header. The unguessable key in the URL is what stands in for one — it's
-// handed out with the event itself, which is already hidden from people who shouldn't
-// see it (a draft is only ever returned to its organizer and Admins).
+// Image tags cannot send bearer tokens, so an unguessable image key grants read access.
 router.get(
   "/:id/image/:key",
   validate({ params: schemas.imageParams }),
@@ -87,15 +80,11 @@ router.get(
       return res.status(404).json({ error: "Image not found" });
     }
     res.set("Content-Type", image.mimeType);
-    // Safe to cache forever: replacing the image mints a new key, so the URL changes with it.
+    // Replacing an image creates a new key, making immutable caching safe.
     res.set("Cache-Control", "public, max-age=31536000, immutable");
-    // Overrides helmet's global same-origin default. This URL is deliberately public —
-    // the key in it is what grants access — and same-origin would block the image in
-    // `npm run dev` and the e2e build, where the API isn't the page's own origin.
+    // Allow the image in local frontend development where UI and API origins differ.
     res.set("Cross-Origin-Resource-Policy", "cross-origin");
-    // Prisma hands `Bytes` back as a Uint8Array, and res.send() would JSON-encode that
-    // into an array of numbers — served under an image content type, so it just looks
-    // like a corrupt file. Buffer.from() is what makes it a binary response.
+    // Convert Prisma's Uint8Array to an actual binary HTTP body.
     res.send(Buffer.from(image.bytes));
   })
 );
@@ -163,10 +152,7 @@ router.post(
       return res.status(400).json({ error: "That venue doesn't exist" });
     }
 
-    // The event and its supply order are one write: either both exist or neither does.
-    // Separately, a failed second insert left an event flagged as having supplies with no
-    // order behind it, and a 500 that invited the organizer to create the event again.
-    // Publishing straight away also queues the order to be sent, in the same transaction.
+    // Event, supply request and delivery job succeed or roll back together.
     const { preorder, ...event } = await prisma.$transaction(async (tx) => {
       const created = await tx.event.create({
         data: {
@@ -177,7 +163,7 @@ router.post(
           capacity,
           venueId: venue.id,
           organizerId: req.user.id,
-          // The flag now just records "this event has a supply order attached".
+          // This compatibility flag records that a supply request is attached.
           isLargeConference: Boolean(supply),
           status,
           ...(supply && { preorder: { create: { item: supply.item, quantity: supply.quantity, status: "PENDING" } } }),

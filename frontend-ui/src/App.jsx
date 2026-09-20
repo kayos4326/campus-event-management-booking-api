@@ -11,9 +11,7 @@ import { Avatar, Brand, Modal, RolePill, Spinner, ToastProvider } from './compon
 import { useIdleTimeout } from './lib/useIdleTimeout'
 import { cleanName } from './lib/format'
 
-// The two biggest pages load on demand. Students never download them — the organizer page
-// alone brings Leaflet (maps) and the image tools. Discover and My bookings stay in the
-// main bundle, so the first page anyone sees needs no extra request.
+// Load role-specific panels on demand so students avoid the large map and Admin bundles.
 const OrganizerPanel = lazyPanel(() => import('./components/OrganizerPanel'))
 const AdminPanel = lazyPanel(() => import('./components/AdminPanel'))
 
@@ -24,8 +22,7 @@ const TABS = {
   admin: { label: 'Admin', icon: ShieldCheck },
 }
 
-// Admins can do everything an Organizer can (the API allows it), and role priority
-// means anyone holding both app roles resolves to ADMIN — so they need My events too.
+// Admins also receive the Organizer workspace because the API grants both capabilities.
 const TABS_BY_ROLE = {
   STUDENT: ['events', 'bookings'],
   ORGANIZER: ['events', 'organizer'],
@@ -93,15 +90,13 @@ function App() {
   const [me, setMe] = useState(null)
   const [meError, setMeError] = useState(false)
 
-  // Signs an abandoned tab out on a shared computer. logoutRedirect also ends the
-  // Microsoft session, so the next person can't click straight back in.
+  // End both the app and Microsoft sessions after inactivity on a shared computer.
   const { warningSeconds, stayActive } = useIdleTimeout({
     idleMs: IDLE_MS,
     warnMs: IDLE_WARNING_MS,
     onIdle: () => { if (isAuthenticated) instance.logoutRedirect() },
   })
-  // The tab lives in the URL (#bookings, #admin…) so refresh, Back/Forward and shared links
-  // keep your place — a reload used to always drop you back on Discover.
+  // Keep the selected panel in the URL for refresh and browser navigation.
   const [tab, setTab] = useState(() => window.location.hash.slice(1) || 'events')
 
   useEffect(() => {
@@ -115,9 +110,7 @@ function App() {
     if (window.location.hash !== `#${key}`) window.location.hash = key
   }
 
-  // Keyed on the account's id rather than the account object: every page reloads its data
-  // when `api` changes, so a new-but-identical account object must not rebuild the client
-  // (found in e2e testing — it caused an endless refetch loop, ~20 requests a second).
+  // Rebuild the API client only when the signed-in identity actually changes.
   const accountKey = account?.homeAccountId || account?.username || null
   const api = useMemo(
     () => (account ? createApiClient(instance, account) : null),
@@ -134,8 +127,7 @@ function App() {
 
   useEffect(() => { loadMe() }, [loadMe])
 
-  // Once we know the role, fetch the pages this person can open in the background, so
-  // switching to them is instant rather than waiting on a download.
+  // Preload only the panels available to this role.
   const role = me?.role
   useEffect(() => {
     if (role === 'ORGANIZER' || role === 'ADMIN') OrganizerPanel.preload()

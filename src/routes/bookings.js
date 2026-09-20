@@ -9,9 +9,7 @@ const schemas = require("../validation/schemas");
 
 const router = express.Router();
 
-// docs/proposal.md: RSVP reserves a seat, or joins the waitlist once the event is full.
-// Seat logic (locking, rebooking after a cancel, waitlist promotion) lives in
-// services/bookings.js.
+// Seat locking, rebooking and waitlist promotion live in services/bookings.js.
 router.post(
   "/",
   requireAuth,
@@ -22,9 +20,7 @@ router.post(
     try {
       booking = await bookSeat(req.valid.body.eventId, req.user.id);
     } catch (err) {
-      // P2002: unique constraint on (eventId, studentId) — confirmed directly by
-      // testing a duplicate booking; without this it surfaced as a generic 500. The
-      // event lock makes this unlikely now, but it stays as a safety net.
+      // The database also enforces one booking per student and event.
       if (err.code === "P2002") {
         return res.status(409).json({ error: "You have already booked this event" });
       }

@@ -216,9 +216,7 @@ prune() {
   done
 }
 
-# Before 2026-09-18 the app lived directly in $BASE and every deploy overwrote it. The
-# first release-based deploy keeps that running copy as legacy-<time>, so there's
-# something to roll back to, and removes the old files once the new release is live.
+# Convert a pre-release-layout installation into the current rollback-safe structure.
 adopt_legacy_layout() {
   [ -L "$BASE/current" ] && return 0
   mkdir -p "$RELEASES" "$SHARED/logs"

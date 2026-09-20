@@ -29,8 +29,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const { id } = req.valid.params;
     const { role } = req.valid.body;
-    // Demoting yourself locks you out of this panel immediately, with no way back
-    // through the app (happened twice during testing). Another Admin has to do it.
+    // Keep at least this Admin able to manage roles through the application.
     if (id === req.user.id && role !== "ADMIN") {
       return res.status(400).json({ error: "You can't remove your own Admin role — ask another Admin" });
     }
@@ -79,11 +78,7 @@ router.get(
   })
 );
 
-// Who changed what, newest first — the answer to "who cancelled this event?".
-// `before` pages backwards: the Activity tab sends the id of the oldest entry it is
-// already showing, and gets the next batch older than it. Sorting by id as well as by
-// time keeps that reliable when several entries share a timestamp — without it, one of
-// them could be skipped or shown twice across a page boundary.
+// Cursor pagination stays stable while new activity entries are being written.
 router.get(
   "/audit",
   validate({ query: schemas.auditQuery }),
@@ -98,8 +93,7 @@ router.get(
   })
 );
 
-// Every key ever issued (active and revoked) so an Admin can revoke one issued in an
-// earlier session — without this the UI could only revoke keys issued since page load.
+// Include revoked keys so the Admin view shows the complete issuance history.
 router.get(
   "/api-keys",
   asyncHandler(async (req, res) => {
@@ -111,9 +105,7 @@ router.get(
   })
 );
 
-// Issue an API key for the exposed room-status endpoint (not tied to a specific
-// consumer team — CLAUDE.md §5). The raw key is returned exactly once — only its hash
-// is persisted.
+// Return the raw peer key once; persist only its hash.
 router.post(
   "/api-keys",
   validate({ body: schemas.apiKeyCreate }),

@@ -1,5 +1,4 @@
-// AU tenant app registration — see CLAUDE.md §4. This is a public client (SPA), so no
-// secret here; the client ID and tenant ID are not sensitive on their own.
+// Public SPA registration in the AU Microsoft Entra tenant; no client secret belongs here.
 export const msalConfig = {
   auth: {
     clientId: "f581260c-6bc3-4f8c-a711-ac2ca274f56b",
@@ -7,26 +6,20 @@ export const msalConfig = {
     redirectUri: window.location.origin + "/events/",
   },
   cache: {
-    // Per-tab on purpose: these are shared lab computers, so closing the tab or the
-    // browser must end the session rather than leave it for the next student.
-    // (localStorage would keep everyone signed in across tabs — convenient, wrong here.)
+    // Per-tab storage clears the session when the browser closes on a shared computer.
     cacheLocation: "sessionStorage",
     storeAuthStateInCookie: false,
   },
 };
 
-// Matches the exposed API scope added 2026-09-10 (CLAUDE.md §4) — the app requesting a
-// scope on itself, since there's no separate client app registration.
+// The SPA requests the delegated scope exposed by this API's app registration.
 export const loginRequest = {
   scopes: ["api://f581260c-6bc3-4f8c-a711-ac2ca274f56b/access_as_user"],
-  // Microsoft keeps its own sign-in cookie in the browser, so without this the next
-  // student on a shared computer would be signed straight in as the previous one.
-  // "select_account" always shows the account chooser first.
+  // Always show the account chooser to protect users on shared computers.
   prompt: "select_account",
 };
 
-// Shared computers again: an abandoned tab signs itself out. VITE_IDLE_MINUTES only
-// exists so the e2e tests don't have to wait 15 real minutes.
+// Sign out abandoned sessions; the override supports development and automated tests.
 export const IDLE_MINUTES = Number(import.meta.env.VITE_IDLE_MINUTES || 15);
 export const IDLE_MS = IDLE_MINUTES * 60 * 1000;
 export const IDLE_WARNING_MS = Math.min(60 * 1000, IDLE_MS / 3);

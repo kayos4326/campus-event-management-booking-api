@@ -7,9 +7,7 @@ const schemas = require("../validation/schemas");
 
 const router = express.Router();
 
-// Public-facing room-status check — tells any holder of a valid API key (issued via
-// /events/api/admin/api-keys) whether an event is currently happening in a given room.
-// Not tied to any specific consumer team as of the 2026-09-10 scope change (CLAUDE.md §5).
+// Read-only integration endpoint protected by an Admin-issued API key.
 // GET /events/api/peer/events/active?room=<number>
 router.get(
   "/events/active",

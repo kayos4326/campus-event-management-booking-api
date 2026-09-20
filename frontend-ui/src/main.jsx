@@ -9,11 +9,7 @@ import { borrowSessionFromOpenTab, shareSessionWithNewTabs } from './lib/session
 
 const msalInstance = new PublicClientApplication(msalConfig)
 
-// Each deploy is a new release with new file names, so a tab opened before it asks for code
-// that no longer exists when it opens a page loaded on demand. Reload once to pick up the
-// new release (the session is in sessionStorage, so you stay signed in). If that already
-// happened a moment ago, let the error through to the page's error boundary rather than
-// reloading in a loop.
+// Reload once when an older tab requests a lazy-loaded file removed by a new deployment.
 window.addEventListener('vite:preloadError', (event) => {
   const KEY = 'reloadedForNewRelease'
   try {
@@ -26,8 +22,7 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload()
 })
 
-// A second tab borrows the session from an open one, so you don't sign in again — but
-// nothing is stored on disk, so closing every tab signs you out. See lib/sessionHandoff.js.
+// Share login only between currently open tabs, then initialize MSAL.
 borrowSessionFromOpenTab().then(() => {
   shareSessionWithNewTabs()
   return msalInstance.initialize()

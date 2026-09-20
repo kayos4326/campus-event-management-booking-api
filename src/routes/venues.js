@@ -23,7 +23,7 @@ router.get(
   })
 );
 
-// Type-ahead for the venue map picker: "AU Suvarnabhumi" → places the pin can jump to.
+// Place suggestions for the map picker.
 router.get(
   "/geocode",
   requireAuth,
@@ -34,8 +34,7 @@ router.get(
   })
 );
 
-// The pin is what makes a venue correct — typed addresses used to be geocoded on their
-// own, which is how a venue ended up on the wrong continent (see services/geoapify.js).
+// A map pin is required; Geoapify validates it and supplies a readable address.
 router.post(
   "/",
   requireAuth,
@@ -54,9 +53,7 @@ router.post(
       data: {
         name,
         roomNumber: roomNumber ?? null,
-        // The organizer's own label wins ("AU Grand Hall, Building D"); otherwise use the
-        // pin's address — cut to the column's 191 characters, since a long Thai address
-        // from Geoapify would otherwise fail the insert.
+        // Prefer the organizer's label and keep the value within the database column.
         addressRaw: addressRaw ?? place.slice(0, 191),
         latitude: lat,
         longitude: lon,
@@ -73,11 +70,7 @@ router.post(
   })
 );
 
-// A venue's labels can be corrected after it was added — a mistyped name used to mean
-// creating a second venue and archiving the first. The pin is not editable here: events
-// already at this venue point at these coordinates (see venueUpdate in
-// ../validation/schemas.js). An archived venue can still be corrected, because it stays
-// visible on the events that use it.
+// Labels can be corrected, but moving the pin would silently relocate existing events.
 router.patch(
   "/:id",
   requireAuth,
@@ -92,7 +85,7 @@ router.patch(
 
     const updated = await prisma.venue.update({ where: { id }, data: changes });
 
-    // Say what actually changed, so the Activity tab reads as a sentence rather than a diff.
+    // Store a concise, readable summary in the Activity view.
     const changed = [];
     if (changes.name !== undefined && changes.name !== venue.name) {
       changed.push(`renamed to "${updated.name}"`);
@@ -116,8 +109,7 @@ router.patch(
   })
 );
 
-// Deleting a venue that events already point at would destroy their history, so that case
-// archives instead: hidden when creating new events, still shown on the old ones.
+// Used venues are archived instead of deleted so historical events remain valid.
 router.delete(
   "/:id",
   requireAuth,
