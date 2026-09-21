@@ -27,14 +27,14 @@ const audit = require("../services/audit");
 
 const router = express.Router();
 
-// Cover-image routes receive the raw image body instead of multipart form data.
+// Cover images are uploaded as the request body.
 const imageBody = express.raw({ type: IMAGE_TYPES, limit: MAX_IMAGE_BYTES });
 
 function isOwnerOrAdmin(req, event) {
   return req.user.role === "ADMIN" || event.organizerId === req.user.id;
 }
 
-// Browse returns published events; `mine=true` returns every status owned by the caller.
+// `mine=true` also includes the organizer's drafts and cancelled events.
 router.get(
   "/",
   requireAuth,
@@ -43,7 +43,7 @@ router.get(
     const { mine } = req.valid.query;
     const events = await prisma.event.findMany({
       where: mine ? { organizerId: req.user.id } : { status: "PUBLISHED" },
-      // Organizers see the supply order they attached; the public browse view doesn't need it.
+      // Supply details are only needed on the organizer page.
       include: { venue: true, image: IMAGE_SELECT, ...(mine && { preorder: true }) },
       orderBy: { startsAt: "asc" },
     });
@@ -60,8 +60,7 @@ router.get(
       where: { id: req.valid.params.id },
       include: { venue: true, image: IMAGE_SELECT },
     });
-    // Drafts are only visible to their organizer and Admins — same 404 as a missing
-    // event, so a draft's existence doesn't leak.
+    // Hide drafts from everyone except their organizer and admins.
     if (!event || (event.status === "DRAFT" && !isOwnerOrAdmin(req, event))) {
       return res.status(404).json({ error: "Event not found" });
     }
@@ -69,7 +68,7 @@ router.get(
   })
 );
 
-// Image tags cannot send bearer tokens, so an unguessable image key grants read access.
+// Browser image tags cannot attach the user's access token.
 router.get(
   "/:id/image/:key",
   validate({ params: schemas.imageParams }),
@@ -80,16 +79,14 @@ router.get(
       return res.status(404).json({ error: "Image not found" });
     }
     res.set("Content-Type", image.mimeType);
-    // Replacing an image creates a new key, making immutable caching safe.
+    // A replacement gets a new key, so this URL can be cached.
     res.set("Cache-Control", "public, max-age=31536000, immutable");
-    // Allow the image in local frontend development where UI and API origins differ.
     res.set("Cross-Origin-Resource-Policy", "cross-origin");
-    // Convert Prisma's Uint8Array to an actual binary HTTP body.
     res.send(Buffer.from(image.bytes));
   })
 );
 
-// Loads an event the caller manages (owner or Admin), or answers 404/403 for them.
+// Find an event and check that this user can manage it.
 async function findManagedEvent(req, res, forbidden = "You can only view your own events") {
   const event = await prisma.event.findUnique({ where: { id: req.valid.params.id } });
   if (!event) {
@@ -120,7 +117,7 @@ router.get(
   })
 );
 
-// Everything that happened to one event — who created, edited, published or cancelled it.
+// Show the latest changes made to one event.
 router.get(
   "/:id/history",
   requireAuth,
@@ -152,7 +149,7 @@ router.post(
       return res.status(400).json({ error: "That venue doesn't exist" });
     }
 
-    // Event, supply request and delivery job succeed or roll back together.
+    // Save the event and supply job in one transaction.
     const { preorder, ...event } = await prisma.$transaction(async (tx) => {
       const created = await tx.event.create({
         data: {
@@ -163,7 +160,7 @@ router.post(
           capacity,
           venueId: venue.id,
           organizerId: req.user.id,
-          // This compatibility flag records that a supply request is attached.
+          // Kept for compatibility with the original schema.
           isLargeConference: Boolean(supply),
           status,
           ...(supply && { preorder: { create: { item: supply.item, quantity: supply.quantity, status: "PENDING" } } }),
@@ -188,7 +185,7 @@ router.post(
         entityId: event.id,
         summary: `Ordered ${supply.quantity} × ${supply.item} for "${event.title}"`,
       });
-      // Committed above; this just saves waiting for the worker's next poll.
+      // Ask the worker to check the new job now.
       if (event.status === "PUBLISHED") outbox.kick();
     }
 
@@ -213,14 +210,14 @@ router.patch(
         throw new HttpError(403, "You can only manage your own events");
       }
 
-      // Only one of the two dates may be changing, so compare against the stored one.
+      // Use the saved date when only one date was edited.
       const start = changes.startsAt ?? event.startsAt;
       const end = changes.endsAt ?? event.endsAt;
       if (start && end && end <= start) {
         throw new HttpError(400, "The event must end after it starts");
       }
 
-      // Lowering capacity never bumps a confirmed student back to the waitlist.
+      // Do not remove seats that are already confirmed.
       if (changes.capacity !== undefined && changes.capacity < event.capacity) {
         const confirmed = await tx.booking.count({ where: { eventId: id, status: "CONFIRMED" } });
         if (changes.capacity < confirmed) {
@@ -231,11 +228,9 @@ router.patch(
         }
       }
 
-      // Every key in `changes` came through the schema, so none is ever `organizerId` etc.
       const result = await tx.event.update({ where: { id: event.id }, data: changes });
 
-      // A draft's supply order is sent when it's published — queued here, in the same
-      // transaction as the publish, and delivered by the outbox worker (services/outbox.js).
+      // Queue a draft's supply request when the event is published.
       let supplyQueued = null;
       if (result.status === "PUBLISHED" && event.status !== "PUBLISHED" && event.isLargeConference) {
         const preorder = await tx.merchPreorder.findUnique({ where: { eventId: event.id } });
@@ -245,7 +240,7 @@ router.patch(
       if (result.status === "CANCELLED" && event.status !== "CANCELLED") {
         await cancelActiveBookings(tx, event.id);
       } else if (result.status === "PUBLISHED") {
-        // Covers a capacity increase, and a draft being re-published with a waitlist.
+        // A larger capacity may open seats for the waitlist.
         await fillOpenSeats(tx, result);
       }
       return { result, before: event, supplyQueued };
@@ -265,7 +260,7 @@ router.patch(
   })
 );
 
-// The raw file is the whole request body — `Content-Type: image/jpeg`, no form wrapper.
+// Upload the image without a multipart form wrapper.
 router.post(
   "/:id/image",
   requireAuth,
@@ -306,7 +301,7 @@ router.delete(
     const event = await findManagedEvent(req, res, "You can only manage your own events");
     if (!event) return;
 
-    // deleteMany, not delete: removing an image that was never there is a no-op, not a 404.
+    // Missing images are treated as already removed.
     const { count } = await prisma.eventImage.deleteMany({ where: { eventId: event.id } });
     if (count) {
       await audit.record(req.user, {
@@ -340,7 +335,7 @@ router.delete(
         where: { id: event.id },
         data: { status: "CANCELLED" },
       });
-      // A cancelled event has no seats to hold — its bookings are cancelled with it.
+      // Cancel its active bookings too.
       const active = await tx.booking.count({ where: { eventId: event.id, status: { in: ["CONFIRMED", "WAITLISTED"] } } });
       await cancelActiveBookings(tx, event.id);
       return { result, active };

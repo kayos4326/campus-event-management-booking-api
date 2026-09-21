@@ -1,6 +1,4 @@
-// Cover images are stored in the database, and a photo straight off a phone is 5–10 MB —
-// so the browser resizes and re-encodes before uploading. The server caps what it accepts
-// at 2 MB (src/services/eventImages.js); this keeps normal uploads well under that.
+// Resize photos before uploading them to the API.
 const MAX_WIDTH = 1600
 const MAX_HEIGHT = 1200
 const TARGET_BYTES = 900 * 1024
@@ -11,7 +9,6 @@ function loadImage(file) {
     const url = URL.createObjectURL(file)
     const img = new Image()
     img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
-    // HEIC from an iPhone, or a renamed file that isn't really an image.
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That image couldn't be opened — try a JPEG or PNG.")) }
     img.src = url
   })
@@ -32,7 +29,7 @@ export async function prepareImage(file) {
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
 
   const ctx = canvas.getContext('2d')
-  // JPEG has no transparency, so a PNG's clear pixels would otherwise come out black.
+  // Give transparent PNGs a white background before converting to JPEG.
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height)

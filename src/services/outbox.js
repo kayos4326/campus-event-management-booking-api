@@ -1,22 +1,8 @@
 const crypto = require("crypto");
 const { prisma } = require("./prisma");
 
-// A transactional outbox: durable, retryable delivery for work that follows a database
-// change — today, posting a supply order to Discord (services/merch.js).
-//
-// 1. The route writes a job with enqueue(tx, …) inside the same transaction as the change,
-//    so the job exists exactly when the change does. A crash or a Discord outage can't
-//    lose it, and a rolled-back request never sends anything.
-// 2. A worker in the app process claims due jobs (FOR UPDATE SKIP LOCKED, so two processes
-//    never take the same one) and holds each for a lease while it runs.
-// 3. Success marks the job DONE. A failure schedules a retry with exponential backoff; an
-//    error retrying can't fix, or running out of attempts, marks it DEAD and tells the
-//    handler (onDead) so it can record the failure where people will see it.
-// 4. If the process dies mid-job, the lease runs out and another pass picks it up again.
-//
-// Delivery is at-least-once: if Discord accepts a message and the process dies before the
-// job is marked DONE, it is sent again. Handlers re-check their own state first to keep
-// that window small.
+// Outbox jobs are saved in the same transaction as the related database change.
+// The worker claims due jobs, retries failures and picks up expired leases after a restart.
 
 const settings = () => ({
   pollMs: Number(process.env.OUTBOX_POLL_MS || 5000),
@@ -27,10 +13,10 @@ const settings = () => ({
   batchSize: 10,
 });
 
-// Retrying won't change the answer (e.g. Discord says the webhook doesn't exist).
+// Use this when retrying cannot fix the problem.
 class PermanentError extends Error {}
 
-// Try again, but not before `retryAfterMs` (e.g. Discord's rate limit says when).
+// Use this when the remote service tells us when to retry.
 class RetryLaterError extends Error {
   constructor(message, retryAfterMs) {
     super(message);
@@ -40,14 +26,11 @@ class RetryLaterError extends Error {
 
 const handlers = new Map();
 
-// `run(payload, job)` does the work and may return a short note for the job row;
-// `onDead(payload, error)` is called once when the job is given up on.
 function registerHandler(type, handler) {
   handlers.set(type, handler);
 }
 
-// Call with the transaction client of the change that needs the job. With a dedupeKey, a
-// job that's still waiting or running for the same key is reused instead of duplicated.
+// A dedupe key prevents two active jobs for the same task.
 async function enqueue(tx, type, payload, { dedupeKey = null } = {}) {
   if (dedupeKey) {
     const live = await tx.outboxJob.findFirst({
@@ -61,16 +44,14 @@ async function enqueue(tx, type, payload, { dedupeKey = null } = {}) {
   });
 }
 
-// 15s, 30s, 1m, 2m … capped at an hour, ±20% so a batch of failures doesn't retry in lockstep.
+// Exponential delay with a small random offset.
 function backoffMs(attempt) {
   const { baseDelayMs, maxDelayMs } = settings();
   const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, attempt - 1));
   return Math.round(delay * (0.8 + Math.random() * 0.4));
 }
 
-// Takes up to `limit` due jobs — new ones whose time has come, and claimed ones whose
-// lease ran out because their worker died. The attempt is counted here, at claim time, so
-// a job that crashes the process every time still runs out of attempts.
+// Claim due jobs and jobs whose previous worker lease expired.
 async function claim(limit) {
   const { leaseMs } = settings();
   const now = new Date();
@@ -78,8 +59,7 @@ async function claim(limit) {
 
   return prisma.$transaction(
     async (tx) => {
-      // Timestamps are passed in rather than using NOW(), so the comparison doesn't depend
-      // on the MySQL server's time zone matching the UTC values Prisma writes.
+      // Use one application timestamp for the query and lease.
       const rows = await tx.$queryRaw`
         SELECT id FROM outbox_jobs
         WHERE (status = 'PENDING' AND run_at <= ${now})
@@ -101,7 +81,7 @@ async function claim(limit) {
       });
       return tx.outboxJob.findMany({ where: { id: { in: ids } }, orderBy: { id: "asc" } });
     },
-    // READ COMMITTED: no gap locks, so concurrent claims only ever skip the rows in use.
+    // Avoid gap locks while workers claim separate rows.
     { isolationLevel: "ReadCommitted" }
   );
 }
@@ -126,8 +106,7 @@ async function runJob(job) {
     }
   }
 
-  // Only the claim that still owns the job may record what happened. If this worker was
-  // so slow the lease ran out and another worker took over, its result is stale.
+  // Ignore a result if another worker already took over the expired lease.
   const { count } = await prisma.outboxJob.updateMany({
     where: { id: job.id, lockToken: job.lockToken, status: "PROCESSING" },
     data: { ...outcome, lockToken: null, lockedUntil: null },
@@ -141,8 +120,7 @@ async function runJob(job) {
   return { id: job.id, type: job.type, attempts: job.attempts, recorded: count === 1, ...outcome };
 }
 
-// One pass: claim what's due and run it. Jobs run one at a time, which keeps a burst of
-// events from tripping Discord's rate limit.
+// Run jobs one at a time to avoid sending a burst to Discord.
 async function processDue({ limit = settings().batchSize } = {}) {
   const jobs = await claim(limit);
   const results = [];
@@ -150,17 +128,17 @@ async function processDue({ limit = settings().batchSize } = {}) {
   return results;
 }
 
-// ------------------------------------------------------------------------------ worker
+// Worker loop
 
 let stopped = true;
 let timer = null;
-let pass = null; // the pass in progress, if any
-let again = false; // a kick() arrived during a pass
+let pass = null;
+let again = false;
 
 function schedule(delayMs) {
   clearTimeout(timer);
   timer = setTimeout(tick, delayMs);
-  timer.unref(); // never the reason a process stays alive
+  timer.unref();
 }
 
 async function tick() {
@@ -175,7 +153,7 @@ async function tick() {
         results = await processDue();
       } while (!stopped && (again || results.length === settings().batchSize));
     } catch (err) {
-      // The database being briefly unreachable shouldn't stop the worker for good.
+      // Try again on the next poll if the database is temporarily unavailable.
       console.error("outbox: pass failed:", err.message);
     }
   })();
@@ -190,15 +168,14 @@ function startWorker() {
   schedule(0);
 }
 
-// Run now rather than at the next poll — called once a request has committed a job.
+// Start a pass as soon as a request commits a new job.
 function kick() {
   if (stopped) return;
   if (pass) again = true;
   else schedule(0);
 }
 
-// Stops polling and waits (up to timeoutMs) for the job in progress. Anything unfinished
-// is picked up again once its lease runs out.
+// Give the current job a short chance to finish during shutdown.
 async function stopWorker({ timeoutMs = 1000 } = {}) {
   stopped = true;
   clearTimeout(timer);

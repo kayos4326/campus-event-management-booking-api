@@ -4,9 +4,7 @@ const { asyncHandler } = require("../middleware/asyncHandler");
 
 const router = express.Router();
 
-// The frontend needs this to know the logged-in user's actual role, since role is
-// DB-authoritative (Admin-managed, not just whatever the token's roles claim says —
-// see src/middleware/auth.js's comment on why role isn't overwritten after creation).
+// Return the local profile and admin-managed role.
 router.get(
   "/",
   requireAuth,

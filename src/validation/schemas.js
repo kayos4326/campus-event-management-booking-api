@@ -1,25 +1,21 @@
-// What every route accepts, in one file. Messages are written for people: the frontend
-// shows `error` straight to the organizer or student (see ./validate.js).
+// Request rules shared by the API routes.
 const { z } = require("zod");
 
-const MAX_ID = 2147483647; // MySQL INT — anything larger can't be a row id
+const MAX_ID = 2147483647; // MySQL INT limit
 const MAX_CAPACITY = 100000;
 const MAX_SUPPLY_QUANTITY = 100000;
-const VARCHAR = 191; // Prisma's default String column length on MySQL
+const VARCHAR = 191;
 
 const EVENT_STATUSES = ["DRAFT", "PUBLISHED", "CANCELLED"];
 const ROLES = ["STUDENT", "ORGANIZER", "ADMIN"];
 
-// Body schemas: a JSON array or a bare string isn't a request anyone meant to send.
 const body = (shape) => z.object(shape, { error: "Send the request body as a JSON object" });
 
-// "Missing required event fields: title" when a required field is absent, else `message`.
 const absentOr = (missing, message) => (issue) =>
   (issue.input === undefined || issue.input === null) && missing ? missing : message;
 
-// ---------------------------------------------------------------------------------- ids
+// IDs
 
-// `/events/abc` names nothing, so a bad id in the URL is a 404 like any missing record.
 const idParam = (message = "Not found") =>
   z
     .string()
@@ -29,7 +25,7 @@ const idParam = (message = "Not found") =>
 
 const idParams = z.object({ id: idParam() });
 
-// An id sent in a body — accepts 7 or "7". `notFound` makes a malformed one a 404.
+// Body IDs may arrive as numbers or numeric strings.
 const idValue = ({ missing, invalid, notFound = false }) =>
   z
     .union([z.number(), z.string()], { error: absentOr(missing, invalid) })
@@ -42,9 +38,8 @@ const idValue = ({ missing, invalid, notFound = false }) =>
       return id;
     });
 
-// ------------------------------------------------------------------------ small pieces
+// Shared values
 
-// `new Date("garbage")` doesn't throw — it's an Invalid Date Prisma later rejects with a 500.
 const dateValue = (label, missing) =>
   z
     .union([z.string(), z.number()], { error: absentOr(missing, `${label} must be a valid date`) })
@@ -58,7 +53,6 @@ const dateValue = (label, missing) =>
     });
 
 const CAPACITY_MESSAGE = "Capacity must be a whole number of at least 1";
-// Strictly a number: "5" is rejected, since a string here means a client bug.
 const capacityValue = (missing) =>
   z
     .number({ error: absentOr(missing, CAPACITY_MESSAGE) })
@@ -66,7 +60,6 @@ const capacityValue = (missing) =>
     .min(1, CAPACITY_MESSAGE)
     .max(MAX_CAPACITY, `Capacity can't be more than ${MAX_CAPACITY}`);
 
-// Free text that may be left out; "" is stored as null.
 const optionalText = (max, label) =>
   z.preprocess(
     (value) => (typeof value === "number" ? String(value) : value),
@@ -79,19 +72,18 @@ const optionalText = (max, label) =>
       .optional()
   );
 
-// "" and null mean "not given"; a numeric string from a form is accepted.
 const looseNumber = (value) => {
   if (value === "" || value === null) return undefined;
   if (typeof value === "string" && value.trim() !== "") return Number(value);
   return value;
 };
 
-// ---------------------------------------------------------------------------- events
+// Events
 
 const SUPPLY_ITEM_MESSAGE = "Say what to order (for example: Blank lanyards)";
 const SUPPLY_QUANTITY_MESSAGE = `How many? Use a whole number between 1 and ${MAX_SUPPLY_QUANTITY}`;
 
-// An optional supply order: what to order and how many. Amount defaults to one per seat.
+// Quantity defaults to the event capacity.
 const supplyValue = z.preprocess(
   (value) => (value === "" || value === null ? undefined : value),
   z
@@ -146,8 +138,7 @@ const eventCreate = body({
     supply: event.supply ? { item: event.supply.item, quantity: event.supply.quantity ?? event.capacity } : null,
   }));
 
-// Every field optional; checks that need the stored event (end vs. the existing start,
-// capacity vs. seats already confirmed) happen in the route, inside its transaction.
+// Checks that need the current database record are handled in the route transaction.
 const eventUpdate = body({
   title: z
     .string({ error: "Title can't be empty" })
@@ -171,7 +162,7 @@ const imageParams = z.object({
   key: z.string().regex(/^[0-9a-f]{24}$/, "Image not found"),
 });
 
-// ---------------------------------------------------------------------------- venues
+// Venues
 
 const PIN_MESSAGE = "Drop a pin on the map to set where the venue is";
 const coordinate = (min, max) =>
@@ -189,9 +180,7 @@ const venueCreate = body({
   longitude: coordinate(-180, 180),
 });
 
-// Editing a venue changes its labels only. The pin deliberately stays put: every event
-// already at this venue points at these coordinates, so moving it would quietly relocate
-// events that were arranged around the old spot. Correcting a typo is the common case.
+// Venue edits do not move the saved map pin.
 const venueUpdate = body({
   name: z
     .string({ error: "Venue name must be text" })
@@ -210,14 +199,13 @@ const geocodeQuery = z.object({
   q: z.string({ error: SEARCH_MESSAGE }).trim().min(3, SEARCH_MESSAGE).max(200, "Keep the search under 200 characters"),
 });
 
-// --------------------------------------------------------------------------- bookings
+// Bookings
 
-// A malformed event id identifies no event: 404, same as an event that doesn't exist.
 const bookingCreate = body({
   eventId: idValue({ missing: "eventId is required", invalid: "Event not found", notFound: true }),
 });
 
-// ------------------------------------------------------------------------------ admin
+// Admin
 
 const roleChange = body({
   role: z.enum(ROLES, { error: `Role must be one of ${ROLES.join(", ")}` }),
@@ -240,16 +228,14 @@ const LIMIT_MESSAGE = "limit must be a whole number between 1 and 500";
 const BEFORE_MESSAGE = "before must be the id of an activity entry";
 const auditQuery = z.object({
   limit: z.preprocess(looseNumber, z.number({ error: LIMIT_MESSAGE }).int(LIMIT_MESSAGE).min(1, LIMIT_MESSAGE).max(500, LIMIT_MESSAGE).default(100)),
-  // One page older: the id of the oldest entry already on screen. Ids are handed out in
-  // order, so "older than this one" is the next page — and unlike an offset it can't skip
-  // or repeat a row when something new is written while someone is reading.
+  // Load entries older than the last id already shown.
   before: z.preprocess(
     looseNumber,
     z.number({ error: BEFORE_MESSAGE }).int(BEFORE_MESSAGE).min(1, BEFORE_MESSAGE).max(MAX_ID, BEFORE_MESSAGE).optional()
   ),
 });
 
-// ------------------------------------------------------------------------------- peer
+// Peer API
 
 const roomQuery = z.object({
   room: z.string({ error: "room query param is required" }).trim().min(1, "room query param is required").max(VARCHAR),

@@ -1,9 +1,7 @@
 const { prisma } = require("./prisma");
 const { cleanNameOf } = require("../utils/http");
 
-// Records who changed what, for the Admin activity view and each event's history.
-// Writing an audit entry must never break the action it describes, so failures are
-// swallowed — a lost log line is better than a failed cancellation.
+// Audit failures are logged but do not cancel the user's action.
 async function record(actor, { action, entityType, entityId, summary }) {
   try {
     await prisma.auditLog.create({
@@ -21,7 +19,7 @@ async function record(actor, { action, entityType, entityId, summary }) {
   }
 }
 
-// Lists the changed fields in a human sentence: "capacity 10 → 25, title changed".
+// Build the short message shown in event history.
 function describeChanges(before, after) {
   const parts = [];
   if (after.title !== undefined && after.title !== before.title) parts.push(`title "${before.title}" → "${after.title}"`);

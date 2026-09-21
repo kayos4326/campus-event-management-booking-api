@@ -1,5 +1,4 @@
-// Thrown from inside route handlers (and Prisma transactions, where an early `return
-// res.status(...)` isn't possible) — app.js's error handler turns it into a JSON response.
+// The error middleware turns this into a JSON response.
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -7,7 +6,7 @@ class HttpError extends Error {
   }
 }
 
-// AU directory names arrive as "THAR LIN HTET -"; audit entries read better tidied up.
+// Clean up names received from the AU directory.
 function cleanNameOf(user) {
   const raw = (user?.displayName || user?.email || "System").replace(/[\s-]+$/, "").trim();
   if (raw && raw === raw.toUpperCase()) {

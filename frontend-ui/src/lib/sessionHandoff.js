@@ -1,22 +1,21 @@
-// Open tabs share the in-memory MSAL session through BroadcastChannel. Unlike localStorage,
-// nothing survives after the final browser tab closes on a shared computer.
+// Share the MSAL session with other open tabs, but not after the browser closes.
 const CHANNEL = 'campus-events-session'
 const WAIT_FOR_REPLY_MS = 400
 
 const channel = () => ('BroadcastChannel' in window ? new BroadcastChannel(CHANNEL) : null)
 
-// Answer another tab that requests the current session.
+// Send this tab's session to a newly opened tab.
 export function shareSessionWithNewTabs() {
   const bus = channel()
   if (!bus) return
   bus.onmessage = (event) => {
     if (event.data?.type !== 'session:request') return
-    if (sessionStorage.length === 0) return // this tab isn't signed in either
+    if (sessionStorage.length === 0) return
     bus.postMessage({ type: 'session:offer', payload: { ...sessionStorage } })
   }
 }
 
-// Borrow a session from an open tab before MSAL initializes.
+// Ask another open tab for its session before MSAL starts.
 export function borrowSessionFromOpenTab() {
   const bus = channel()
   if (!bus || sessionStorage.length > 0) return Promise.resolve(false)

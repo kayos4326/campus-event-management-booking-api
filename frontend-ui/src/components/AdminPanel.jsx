@@ -6,8 +6,7 @@ import {
 import { cleanName, errorMessage, formatDate, seatInfo, timeAgo } from '../lib/format'
 
 const ROLES = ['STUDENT', 'ORGANIZER', 'ADMIN']
-// What GET /admin/audit returns per request when no limit is given. A short page means
-// there is nothing older left to ask for.
+// Number of activity entries loaded at a time.
 const AUDIT_PAGE = 100
 const title = (role) => role[0] + role.slice(1).toLowerCase()
 
@@ -134,7 +133,7 @@ function ApiKeys({ api }) {
   const toast = useToast()
   const [form, setForm] = useState({ ownerLabel: '', scope: 'room-status:read' })
   const [keys, setKeys] = useState(null)
-  const [revealed, setRevealed] = useState(null) // { id, key } — shown once, right after issuing
+  const [revealed, setRevealed] = useState(null) // Shown once after creating a key.
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
@@ -318,7 +317,7 @@ export default function AdminPanel({ api, me }) {
     if (!activity?.length || activityLoadingMore) return
     setActivityLoadingMore(true)
     try {
-      // The list is newest first, so the last row on screen is the oldest one we hold.
+      // Load entries older than the last one shown.
       const oldest = activity[activity.length - 1].id
       const res = await api.get('/admin/audit', { params: { before: oldest } })
       setActivity((current) => [...current, ...res.data])

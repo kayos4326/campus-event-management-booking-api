@@ -16,12 +16,12 @@ import { errorMessage, formatDate, formatTimeRange, isPast, timeAgo, toLocalInpu
 const emptyEvent = {
   title: '', description: '', capacity: 50, startsAt: '', endsAt: '',
   venueId: '', supplyItem: '', supplyQuantity: '', status: 'PUBLISHED',
-  // The cover image is saved after the event itself — see saveImage() below.
+  // The event must exist before its image can be uploaded.
   imageUrl: null, imageBlob: null, imagePreview: null, imageCleared: false,
 }
 
 function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddVenue }) {
-  // Remounted (via `key`) each time it opens, so the form starts from `initial`.
+  // This form is remounted each time it opens.
   const [form, setForm] = useState(() => (initial
     ? { ...emptyEvent, ...initial, startsAt: toLocalInput(initial.startsAt), endsAt: toLocalInput(initial.endsAt) }
     : emptyEvent))
@@ -31,7 +31,7 @@ function EventFormModal({ open, mode, initial, venues, onClose, onSubmit, onAddV
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
-  // The event's own image while it's being replaced, else whatever is already saved.
+  // Show the selected image or the image already saved.
   const preview = form.imagePreview || (form.imageCleared ? null : mediaUrl(form.imageUrl))
 
   const pickImage = (blob, url) => {
@@ -216,7 +216,7 @@ function VenueModal({ open, onClose, onCreated, api }) {
             onChange={(next) => {
               setPin(next)
               setError('')
-              // A place picked from search fills the address; a bare pin is described by the server.
+              // Search results include an address; plain pins are described by the API.
               if (next.formatted && !form.addressRaw.trim()) setForm((f) => ({ ...f, addressRaw: next.formatted }))
             }}
           />
@@ -231,7 +231,7 @@ function VenueModal({ open, onClose, onCreated, api }) {
   )
 }
 
-// Edit labels only; moving the pin would silently relocate existing events.
+// Venue editing changes labels only, not the map pin.
 function VenueEditModal({ open, venue, onClose, onSaved, api }) {
   const [form, setForm] = useState({
     name: venue?.name ?? '',
@@ -243,7 +243,7 @@ function VenueEditModal({ open, venue, onClose, onSaved, api }) {
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
-  // Send only changed fields so the Activity entry stays meaningful.
+  // Send only fields that changed.
   const changes = {}
   if (venue) {
     if (form.name.trim() !== (venue.name ?? '')) changes.name = form.name.trim()
@@ -450,9 +450,7 @@ export default function OrganizerPanel({ api }) {
 
   const visible = (events || []).filter((e) => filter === 'all' || e.status === filter)
 
-  // The upload endpoint needs an event id, so the cover image is saved once the event
-  // exists. A failed image is reported on its own — the event itself is already saved,
-  // and saying "couldn't save the event" would be wrong.
+  // Image upload is separate because it needs the new event id.
   const saveImage = async (eventId, form) => {
     try {
       if (form.imageBlob) {
@@ -502,8 +500,7 @@ export default function OrganizerPanel({ api }) {
             : `${quantity ?? Number(form.capacity)} × ${item} will be ordered when you publish.`
           : form.title,
       })
-      // The Discord post finishes a moment after the event is created — refresh once more
-      // so the supply order's status stops saying "sending".
+      // Refresh again after the Discord worker has had time to run.
       if (item && form.status === 'PUBLISHED') setTimeout(loadEvents, 3000)
     }
     setFormMode(null)
@@ -517,7 +514,7 @@ export default function OrganizerPanel({ api }) {
       await api.patch(`/events/${event.id}`, { status: 'PUBLISHED' })
       toast({ title: 'Event published', body: `${event.title} is now visible to students.` })
       loadEvents()
-      // A pending supply order is sent to Discord on publish; show the result when it lands.
+      // Refresh again to show the Discord delivery result.
       if (event.preorder && event.preorder.status !== 'CONFIRMED') setTimeout(loadEvents, 3000)
     } catch (err) {
       toast({ tone: 'danger', title: "Couldn't publish", body: errorMessage(err, 'Please try again.') })
@@ -723,7 +720,7 @@ export default function OrganizerPanel({ api }) {
         onClose={() => { selectNewVenue.current = null; setVenueOpen(false) }}
         onCreated={(venue) => {
           setVenueOpen(false)
-          // Opened from inside "Create an event"? Pick the new venue there too.
+          // Select the new venue in the open event form.
           selectNewVenue.current?.(venue)
           selectNewVenue.current = null
           toast({ title: 'Venue added', body: `${venue.name} — address verified.` })

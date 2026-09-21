@@ -4,13 +4,12 @@ import 'leaflet/dist/leaflet.css'
 import { MapPin, Search } from 'lucide-react'
 import { errorMessage } from '../lib/format'
 
-// AU Suvarnabhumi campus — where the picker opens before a pin is dropped.
+// Open the picker at the AU Suvarnabhumi campus.
 const CAMPUS = [13.6117, 100.8377]
 const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 
-// Leaflet's default marker is a PNG that bundlers can't resolve — this is our own pin,
-// drawn inline so it matches the app's accent colour and needs no image files.
+// Inline marker icon so no extra image file is needed.
 const pinIcon = L.divIcon({
   className: 'map-pin',
   html: '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 22s7-6.4 7-12A7 7 0 0 0 5 10c0 5.6 7 12 7 12Z" fill="currentColor" stroke="white" stroke-width="1.6"/><circle cx="12" cy="10" r="2.6" fill="white"/></svg>',
@@ -18,17 +17,14 @@ const pinIcon = L.divIcon({
   iconAnchor: [15, 28],
 })
 
-/**
- * `readOnly` renders a small, non-interactive map of a saved venue.
- * Otherwise it's the picker: click or drag to place the pin, or search for a place.
- */
+// readOnly shows a saved venue. Otherwise the map lets the organizer choose a pin.
 export default function VenueMap({ value, onChange, api, readOnly, height = 280, label }) {
   const container = useRef(null)
   const map = useRef(null)
   const marker = useRef(null)
   const onChangeRef = useRef(onChange)
   useEffect(() => { onChangeRef.current = onChange })
-  // The map is created once; re-creating it on every pin drop would reset the view.
+  // Keep the first value because Leaflet is created only once.
   const initial = useRef(value)
 
   const [query, setQuery] = useState('')
@@ -60,14 +56,13 @@ export default function VenueMap({ value, onChange, api, readOnly, height = 280,
       zoom: pinned?.latitude != null ? 17 : 15,
       zoomControl: !readOnly,
       dragging: !readOnly,
-      scrollWheelZoom: false, // page scrolling shouldn't get hijacked by the map
+      scrollWheelZoom: false,
       doubleClickZoom: !readOnly,
       touchZoom: !readOnly,
       keyboard: !readOnly,
       attributionControl: true,
     })
-    // OpenStreetMap refuses tile requests with no Referer. Set on the tiles themselves too, so
-    // the map still works wherever the page's own header says otherwise (see security.js).
+    // OpenStreetMap requires a referrer for tile requests.
     L.tileLayer(TILES, { attribution: ATTRIBUTION, maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map.current)
     if (pinned?.latitude != null) place([pinned.latitude, pinned.longitude])
     if (!readOnly) {
@@ -76,7 +71,7 @@ export default function VenueMap({ value, onChange, api, readOnly, height = 280,
         onChangeRef.current?.({ latitude: e.latlng.lat, longitude: e.latlng.lng })
       })
     }
-    // Leaflet measures the container on creation; inside a dialog that's mid-animation.
+    // Recheck the map size after the dialog opens.
     const t = setTimeout(() => map.current?.invalidateSize(), 60)
     return () => { clearTimeout(t); map.current?.remove(); map.current = null; marker.current = null }
   }, [place, readOnly])

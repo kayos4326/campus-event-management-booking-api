@@ -1,11 +1,7 @@
 const { prisma } = require("./prisma");
 const { HttpError } = require("../utils/http");
 
-// Every operation that changes who holds a seat (booking, cancelling, changing capacity,
-// cancelling an event) runs in a transaction that first locks the event's row. That
-// serializes seat changes per event, so two students can't both grab the last seat by
-// counting "4 of 5 taken" at the same moment. READ COMMITTED makes each query after the
-// lock see whatever the previous transaction just committed.
+// Lock the event row before changing seats so two students cannot take the last seat.
 const TX_OPTIONS = { isolationLevel: "ReadCommitted" };
 
 function withEventTransaction(fn) {
@@ -16,7 +12,7 @@ async function lockEvent(tx, eventId) {
   await tx.$queryRaw`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`;
 }
 
-// Promotes waitlisted bookings, oldest first, into any open seats. Returns promoted ids.
+// Fill open seats from the waitlist, oldest booking first.
 async function fillOpenSeats(tx, event) {
   const confirmed = await tx.booking.count({
     where: { eventId: event.id, status: "CONFIRMED" },
@@ -44,8 +40,7 @@ async function cancelActiveBookings(tx, eventId) {
   });
 }
 
-// Adds `seats: { confirmed, waitlisted }` to each event, in one grouped query, so the
-// frontend can show capacity bars without an extra request per event.
+// Add confirmed and waitlisted totals to each event.
 async function withSeatCounts(events) {
   if (events.length === 0) return events;
 
@@ -73,8 +68,7 @@ function bookSeat(eventId, studentId) {
       throw new HttpError(404, "Event not found");
     }
 
-    // The (eventId, studentId) unique constraint means a cancelled booking's row is
-    // still there — booking again reuses it instead of failing as a duplicate.
+    // Reuse a cancelled booking because eventId + studentId must stay unique.
     const existing = await tx.booking.findUnique({
       where: { eventId_studentId: { eventId, studentId } },
     });
@@ -86,7 +80,7 @@ function bookSeat(eventId, studentId) {
     const status = confirmed >= event.capacity ? "WAITLISTED" : "CONFIRMED";
 
     if (existing) {
-      // createdAt is the waitlist queue position — rebooking goes to the back of the line.
+      // Rebooking joins the back of the waitlist.
       return tx.booking.update({
         where: { id: existing.id },
         data: { status, createdAt: new Date() },
@@ -104,8 +98,7 @@ function cancelBooking(bookingId, studentId) {
     }
 
     await lockEvent(tx, found.eventId);
-    // Re-read under the lock: a concurrent cancellation may have just promoted this
-    // booking from WAITLISTED to CONFIRMED.
+    // Its status may have changed while we waited for the event lock.
     const booking = await tx.booking.findUnique({ where: { id: bookingId } });
     if (booking.status === "CANCELLED") return booking;
 

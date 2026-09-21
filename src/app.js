@@ -11,7 +11,7 @@ const adminRouter = require("./routes/admin");
 const meRouter = require("./routes/me");
 const { HttpError } = require("./utils/http");
 
-// Which release is running: deploy.sh writes a RELEASE file into each release directory.
+// deploy.sh writes this file for the health check.
 const RELEASE = (() => {
   try {
     return fs.readFileSync(path.join(__dirname, "../RELEASE"), "utf8").trim();
@@ -28,9 +28,7 @@ function createApp() {
   app.use(corsPolicy); // only our own frontend may call the API from a browser
   app.use(express.json({ limit: "100kb" }));
 
-  // Only reachable on the VM itself — Nginx forwards /events, not /health. deploy.sh uses it
-  // after switching releases: `release` proves the new code is what's answering, and
-  // ?deep=1 that it can reach the database too.
+  // deploy.sh uses the deep check before accepting a release.
   app.get("/health", async (req, res) => {
     const health = { status: "ok", release: RELEASE };
     if (req.query.deep !== "1") return res.json(health);
@@ -42,7 +40,7 @@ function createApp() {
     }
   });
 
-  // Abuse protection on the API only — the frontend's own files aren't rate limited.
+  // Rate-limit API requests, not static frontend files.
   app.use("/events/api", readLimiter(), writeLimiter());
 
   // All application routes live under /events so existing VPS routes remain untouched.
@@ -53,8 +51,7 @@ function createApp() {
   app.use("/events/api/admin", adminRouter);
   app.use("/events/api/me", meRouter);
 
-  // Built React frontend (frontend-ui/), served after the API routes above so
-  // /events/api/* is never shadowed by this catch-all.
+  // Serve the built React app after the API routes.
   app.use("/events", express.static(path.join(__dirname, "../frontend-ui/dist")));
 
   app.use((err, req, res, next) => {
@@ -64,11 +61,10 @@ function createApp() {
     if (err.type === "entity.parse.failed") {
       return res.status(400).json({ error: "Request body is not valid JSON" });
     }
-    // A cover image bigger than the cap in services/eventImages.js.
     if (err.type === "entity.too.large") {
       return res.status(413).json({ error: "That file is too large — use an image under 2 MB" });
     }
-    // P2025: the record to update doesn't exist (e.g. a role change for an unknown user id).
+    // Prisma uses P2025 when an update target does not exist.
     if (err.code === "P2025") {
       return res.status(404).json({ error: "Not found" });
     }

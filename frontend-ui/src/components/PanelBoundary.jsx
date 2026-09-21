@@ -2,13 +2,12 @@ import { Component, Suspense } from 'react'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { EmptyState } from './ui'
 
-// A tab opened before a deploy asks for code files the new release doesn't have. main.jsx
-// reloads once when that happens; if it happens again, the page lands here instead.
+// Detect an old tab trying to load files from the previous release.
 const isStaleCode = (error) =>
   /dynamically imported module|Importing a module script failed|error loading dynamically imported|Failed to fetch/i
     .test(String(error?.message || error))
 
-// Shown while a panel's code downloads — shaped like a page, so nothing jumps when it arrives.
+// Placeholder shown while a panel downloads.
 function PanelLoading() {
   return (
     <div aria-busy="true" aria-live="polite">
@@ -49,8 +48,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Wraps a page that's loaded on demand: a placeholder while it downloads, and
-// a way out if it can't load or crashes, instead of a blank screen.
+// Show a loading state and a useful error instead of a blank page.
 export default function PanelBoundary({ children }) {
   return (
     <ErrorBoundary>

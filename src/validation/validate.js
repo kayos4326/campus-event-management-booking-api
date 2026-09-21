@@ -1,12 +1,5 @@
-// One place where request input is checked. Each route declares what it accepts (see
-// ./schemas.js); this runs before the handler, rejects anything malformed with a
-// consistent response, and hands the handler clean, typed values on `req.valid`.
-//
-// Response on failure:
-//   400 { error: "The event must end after it starts", details: [{ field, message }] }
-// `error` is the first problem, worded for people — the frontend shows it as-is.
-// A malformed id in the URL names nothing, so it's a 404, the same as a missing record.
-// Unknown body fields are dropped, so a client can't slip in e.g. `organizerId`.
+// Validate params, queries and bodies before the route handler runs.
+// Clean values are stored in req.valid and errors use the same JSON format.
 function validate(schemas) {
   return (req, res, next) => {
     const valid = {};

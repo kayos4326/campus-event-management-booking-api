@@ -628,9 +628,7 @@ a { color: inherit; }
 .venue-card { overflow: hidden; }
 .venue-card .event-media { aspect-ratio: 16 / 7; }
 .venue-card-body { padding: 14px 16px 16px; display: grid; gap: 4px; }
-/* Three actions don't fit across a 240px card column, and .venue-card clips what
-   overflows — which silently hid Remove when Edit was added. The map link takes its own
-   line so Edit and Remove always have room. */
+/* Keep the map link on its own line so Edit and Remove stay visible. */
 .venue-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: 8px; flex-wrap: wrap; }
 .venue-card-actions .map-link { flex: 1 1 100%; }
 .venue-card-actions .btn-danger { --btn-border: transparent; }
@@ -813,7 +811,7 @@ a { color: inherit; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: auto; }
   .ticket { flex-wrap: wrap; }
-  /* The stub, the title and the actions need the width here — the photo is on Discover. */
+  /* Give the title and actions more room on small screens. */
   .ticket-photo { display: none; }
   .ticket-stub { width: 84px; }
   .ticket-stub strong { font-size: 30px; }

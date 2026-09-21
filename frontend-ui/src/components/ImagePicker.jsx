@@ -3,9 +3,7 @@ import { ImagePlus, Trash2, Upload } from 'lucide-react'
 import { Spinner } from './ui'
 import { prepareImage } from '../lib/image'
 
-// Picks an event's cover image. The file is resized here and handed to the parent as a
-// Blob — it's uploaded only once the event has been saved, since the upload endpoint
-// needs an event id.
+// Resize the selected cover image before passing it to the event form.
 export default function ImagePicker({ preview, onChange }) {
   const input = useRef(null)
   const [dragging, setDragging] = useState(false)
@@ -23,7 +21,7 @@ export default function ImagePicker({ preview, onChange }) {
       setError(err.message || 'That image couldn’t be used.')
     } finally {
       setBusy(false)
-      if (input.current) input.current.value = '' // so picking the same file twice still fires
+      if (input.current) input.current.value = ''
     }
   }
 

@@ -14,7 +14,7 @@ router.get(
   requireAuth,
   validate({ query: schemas.venueList }),
   asyncHandler(async (req, res) => {
-    // Archived venues stay on the events that already use them, but aren't offered again.
+    // Old events keep archived venues, but new events cannot select them.
     const venues = await prisma.venue.findMany({
       where: req.valid.query.includeArchived ? {} : { isArchived: false },
       orderBy: { name: "asc" },
@@ -23,7 +23,7 @@ router.get(
   })
 );
 
-// Place suggestions for the map picker.
+// Search places for the map picker.
 router.get(
   "/geocode",
   requireAuth,
@@ -34,7 +34,7 @@ router.get(
   })
 );
 
-// A map pin is required; Geoapify validates it and supplies a readable address.
+// Geoapify checks the pin and returns its address.
 router.post(
   "/",
   requireAuth,
@@ -43,7 +43,6 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, roomNumber, addressRaw, latitude: lat, longitude: lon } = req.valid.body;
 
-    // Reverse geocoding doubles as validation: a pin in the middle of the sea has no address.
     const place = await describeLocation(lat, lon);
     if (!place) {
       return res.status(422).json({ error: "That pin isn't on a recognisable place — move it onto a building or road" });
@@ -53,7 +52,7 @@ router.post(
       data: {
         name,
         roomNumber: roomNumber ?? null,
-        // Prefer the organizer's label and keep the value within the database column.
+        // Use the organizer's label when one was entered.
         addressRaw: addressRaw ?? place.slice(0, 191),
         latitude: lat,
         longitude: lon,
@@ -70,7 +69,7 @@ router.post(
   })
 );
 
-// Labels can be corrected, but moving the pin would silently relocate existing events.
+// Organizers can fix labels without moving the saved pin.
 router.patch(
   "/:id",
   requireAuth,
@@ -85,7 +84,6 @@ router.patch(
 
     const updated = await prisma.venue.update({ where: { id }, data: changes });
 
-    // Store a concise, readable summary in the Activity view.
     const changed = [];
     if (changes.name !== undefined && changes.name !== venue.name) {
       changed.push(`renamed to "${updated.name}"`);
@@ -109,7 +107,7 @@ router.patch(
   })
 );
 
-// Used venues are archived instead of deleted so historical events remain valid.
+// Archive venues that are still linked to events.
 router.delete(
   "/:id",
   requireAuth,

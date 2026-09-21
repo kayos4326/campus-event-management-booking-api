@@ -3,9 +3,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
-// Only our own frontend is allowed to call the API from a browser. Anything without an
-// Origin header (curl, the room-status API's consumers, server-to-server) is unaffected —
-// those are authenticated by bearer token or x-api-key, not by origin.
+// Browser requests are allowed only from our frontend and local test pages.
 const DEFAULT_ORIGINS = [
   "https://chaotic-hell.eastasia.cloudapp.azure.com",
   "http://localhost:5173", // frontend dev server
@@ -19,41 +17,36 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || DEFAULT_ORIGINS.join(",")
 const corsPolicy = cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(null, false); // no CORS headers → the browser blocks the response
+    callback(null, false);
   },
 });
 
-// Exported so the e2e test build can serve the app under the very same policy.
 const cspDirectives = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
-  // React and Leaflet set inline styles; the fonts come from Google Fonts.
+  // React and Leaflet use inline styles.
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-  // Map tiles (OpenStreetMap) and inline SVG/data-URI icons.
+  // OpenStreetMap tiles and inline icons.
   imgSrc: ["'self'", "data:", "blob:", "https://tile.openstreetmap.org", "https://*.tile.openstreetmap.org"],
   connectSrc: ["'self'", "https://login.microsoftonline.com", "https://tile.openstreetmap.org"],
-  frameSrc: ["https://login.microsoftonline.com"], // MSAL's silent token refresh
-  frameAncestors: ["'none'"], // nobody can embed this app in an iframe
+  frameSrc: ["https://login.microsoftonline.com"],
+  frameAncestors: ["'none'"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   formAction: ["'self'"],
 };
 
-// helmet's default is "no-referrer", and OpenStreetMap blocks tile requests that carry no
-// Referer — it answers with an "Access blocked" picture instead of the map (a 200, so
-// nothing looks broken in the network tab). This sends other sites our origin only, never
-// a path or query, and nothing at all over plain HTTP. It's also the browser's own default.
+// OpenStreetMap requires a referrer. This policy sends only our origin.
 const REFERRER_POLICY = "strict-origin-when-cross-origin";
 
 const securityHeaders = helmet({
   contentSecurityPolicy: { directives: cspDirectives },
-  crossOriginEmbedderPolicy: false, // would block the map tiles
+  crossOriginEmbedderPolicy: false,
   referrerPolicy: { policy: REFERRER_POLICY },
 });
 
-// Rate limits are per signed-in user (or per API key), falling back to the client IP for
-// unauthenticated calls — so one noisy account can't lock everyone else out.
+// Rate-limit by login, API key or client IP.
 function identity(req) {
   const credential = req.get("authorization") || req.get("x-api-key");
   if (credential) return `key:${crypto.createHash("sha256").update(credential).digest("hex").slice(0, 32)}`;
@@ -68,14 +61,14 @@ const limiter = (max, message) =>
     keyGenerator: identity,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: false, // we supply our own key, so the proxy/IP checks don't apply
+    validate: false,
     handler: (req, res) => res.status(429).json({ error: message }),
   });
 
 const readLimiter = () =>
   limiter(Number(process.env.RATE_LIMIT_REQUESTS || 1000), "Too many requests — slow down and try again in a few minutes");
 
-// Writes (create/update/cancel) get a tighter budget than reads.
+// Writes have a lower limit than reads.
 const writeLimiter = () => {
   const limit = limiter(
     Number(process.env.RATE_LIMIT_WRITES || 200),

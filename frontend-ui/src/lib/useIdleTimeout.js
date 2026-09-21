@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-// Anything that proves a person is still at the computer.
 const ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll', 'wheel']
 
-/**
- * Shared-computer safety: an abandoned tab signs itself out.
- * Activity keeps pushing the deadline back, but once the warning is showing only an
- * explicit "Stay signed in" resets it — a passing mouse shouldn't keep a session alive.
- */
+// Sign out an abandoned session. During the warning, only the button resets the timer.
 export function useIdleTimeout({ idleMs, warnMs, onIdle }) {
-  const [warningSeconds, setWarningSeconds] = useState(null) // null while there's no warning
+  const [warningSeconds, setWarningSeconds] = useState(null)
   const deadline = useRef(0)
   const warning = useRef(false)
   const onIdleRef = useRef(onIdle)
@@ -22,7 +17,7 @@ export function useIdleTimeout({ idleMs, warnMs, onIdle }) {
   }, [idleMs])
 
   useEffect(() => {
-    deadline.current = Date.now() + idleMs // start the clock on mount, not during render
+    deadline.current = Date.now() + idleMs
     const onActivity = () => { if (!warning.current) stayActive() }
     ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, onActivity, { passive: true }))
 

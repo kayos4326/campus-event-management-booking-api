@@ -22,7 +22,7 @@ export function formatTimeRange(start, end) {
 
 export const isPast = (event) => new Date(event.endsAt) < new Date()
 
-// <input type="datetime-local"> wants local "YYYY-MM-DDTHH:mm", not an ISO string.
+// Format a date for a datetime-local input.
 export function toLocalInput(value) {
   if (!value) return ''
   const d = new Date(value)
@@ -30,7 +30,7 @@ export function toLocalInput(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-// AU directory names come through as e.g. "THAR LIN HTET -" — tidy them for display.
+// Tidy names received from the AU directory.
 export function cleanName(name = '') {
   const trimmed = name.replace(/[\s-]+$/, '').trim()
   if (trimmed && trimmed === trimmed.toUpperCase()) {
@@ -44,7 +44,7 @@ export function initials(name = '') {
   return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?'
 }
 
-// Stable per-person avatar color.
+// Keep the same avatar color for each person.
 export function hueFor(text = '') {
   let hash = 0
   for (const ch of text) hash = (hash * 31 + ch.charCodeAt(0)) % 360

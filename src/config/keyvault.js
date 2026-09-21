@@ -1,13 +1,11 @@
 const { DefaultAzureCredential } = require("@azure/identity");
 const { SecretClient } = require("@azure/keyvault-secrets");
 
-// Production secrets are loaded from Azure Key Vault through the VM's managed identity.
-// Environment values support local Docker development without changing application code.
-// Entra signs our JWTs, so the app needs public signing keys—not a JWT signing secret.
+// Production reads secrets from Key Vault. Local Docker can use env vars.
 const REQUIRED_SECRETS = ["database-url", "geoapify-api-key"];
 const OPTIONAL_SECRETS = ["discord-webhook-url"];
 
-// Vault secret name → the env var the rest of the app reads.
+// Key Vault name to application env var.
 const ENV_VAR = {
   "database-url": "DATABASE_URL",
   "geoapify-api-key": "GEOAPIFY_API_KEY",
@@ -18,7 +16,7 @@ async function loadSecrets() {
   const secrets = {};
   const wanted = [...REQUIRED_SECRETS, ...OPTIONAL_SECRETS];
 
-  // Local development may supply secrets directly; production fetches every missing value.
+  // Only contact Key Vault for values that are not already set.
   const missing = wanted.filter((name) => !process.env[ENV_VAR[name]]);
   for (const name of wanted) {
     if (!missing.includes(name)) secrets[name] = process.env[ENV_VAR[name]];

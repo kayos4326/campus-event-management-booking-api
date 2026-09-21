@@ -145,7 +145,7 @@ export function Alert({ children, tone = 'danger' }) {
   )
 }
 
-// Native <dialog>: focus trapping, Escape-to-close, and the backdrop come for free.
+// Native dialog handles focus, Escape and the backdrop.
 export function Modal({ open, onClose, title, description, size, children, footer }) {
   const ref = useRef(null)
 
@@ -154,7 +154,7 @@ export function Modal({ open, onClose, title, description, size, children, foote
     if (!dialog) return
     if (open && !dialog.open) {
       dialog.showModal()
-      // showModal() focuses the first focusable element (the close button) — prefer the first field.
+      // Start on the first form field instead of the close button.
       dialog.querySelector('.modal-body input:not([disabled]), .modal-body textarea, .modal-body select')?.focus()
     }
     if (!open && dialog.open) dialog.close()
